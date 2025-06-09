@@ -200,12 +200,12 @@ void cleanup() {
     if (s_vao)
         glDeleteVertexArrays(1, &s_vao);
     s_shader.cleanup();
-    if (s_fbos[0] || s_fbos[1])
-        glDeleteFramebuffers(2, s_fbos);
-    if (s_colors[0] || s_colors[1])
-        glDeleteTextures(2, s_colors);
     if (s_stencils[0] || s_stencils[1])
         glDeleteRenderbuffers(2, s_stencils);
+    if (s_colors[0] || s_colors[1])
+        glDeleteTextures(2, s_colors);
+    if (s_fbos[0] || s_fbos[1])
+        glDeleteFramebuffers(2, s_fbos);
 }
 
 GLint s_savedFboDraw, s_savedFboRead, s_savedTexture, s_savedRbo;
@@ -378,6 +378,10 @@ class $modify(CCDirector) {
         if (m_bDisplayFPS)
             showFPSLabel();
 
+        if (PlayLayer::get()) {
+            PlayLayer::get()->m_background->setPositionX(PlayLayer::get()->m_background->getPositionX() - 10.0f);
+        }
+
         s_isRight = true;
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.right);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -389,6 +393,10 @@ class $modify(CCDirector) {
             showStats();
         if (m_bDisplayFPS)
             showFPSLabel();
+
+        if (PlayLayer::get()) {
+            PlayLayer::get()->m_background->setPositionX(PlayLayer::get()->m_background->getPositionX() + 10.0f);
+        }
 
         endMod();
 
