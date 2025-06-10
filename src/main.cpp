@@ -58,7 +58,7 @@ struct Shader {
         fragment = glCreateShader(GL_FRAGMENT_SHADER);
         const char* fragmentSources[] = {
 #ifdef GEODE_IS_WINDOWS
-            "#version 150\n",
+            "#version 120\n",
 #endif
 #ifdef GEODE_IS_MOBILE
             "precision highp float;\n",
@@ -185,8 +185,7 @@ uniform sampler2D left;
 uniform sampler2D right;
 void main() {
     vec2 texCoords = vec2(mod(Position.x + 1.0, 1.0), (Position.y + 1.0) * 0.5);
-    gl_FragColor = texture(Position.x < 0.0 ? left : right, texCoords);
-    //gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    gl_FragColor = texture2D(Position.x < 0.0 ? left : right, texCoords);
 }
 )";
 GLuint s_vao = 0;
