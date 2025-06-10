@@ -164,8 +164,8 @@ static union {
     struct {
         GLuint left;
         GLuint right;
-    } s_stencil;
-    GLuint s_stencils[2];
+    } s_depthStencil;
+    GLuint s_depthStencils[2];
 };
 
 Shader s_shader;
@@ -203,12 +203,14 @@ void cleanup() {
     s_shader.cleanup();
     s_leftLoc = 0;
     s_rightLoc = 0;
-    if (s_stencils[0] || s_stencils[1])
-        glDeleteRenderbuffers(2, s_stencils);
-    s_stencils[0] = 0;
-    s_stencils[1] = 0;
-    if (s_colors[0] || s_colors[1])
-        glDeleteTextures(2, s_colors);
+    if (s_depthStencils[0] || s_depthStencils[1])
+        glDeleteRenderbuffers(2, s_depthStencils);
+    s_depthStencils[0] = 0;
+    s_depthStencils[1] = 0;
+    if (s_colors[0])
+        ccGLDeleteTextureN(0, s_colors[0]);
+    if (s_colors[1])
+        ccGLDeleteTextureN(1, s_colors[1]);
     s_colors[0] = 0;
     s_colors[1] = 0;
     if (s_fbos[0] || s_fbos[1])
@@ -266,7 +268,7 @@ class $modify(CCEGLViewProtocol) {
 
         glGenFramebuffers(2, s_fbos);
         glGenTextures(2, s_colors);
-        glGenRenderbuffers(2, s_stencils);
+        glGenRenderbuffers(2, s_depthStencils);
 
         ccGLBindTexture2D(s_color.left);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
@@ -278,17 +280,17 @@ class $modify(CCEGLViewProtocol) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        glBindRenderbuffer(GL_RENDERBUFFER, s_stencil.left);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, w, h);
+        glBindRenderbuffer(GL_RENDERBUFFER, s_depthStencil.left);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
 
-        glBindRenderbuffer(GL_RENDERBUFFER, s_stencil.right);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, w, h);
+        glBindRenderbuffer(GL_RENDERBUFFER, s_depthStencil.right);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
 
         bool incomplete = false;
 
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.left);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color.left, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_stencil.left, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_depthStencil.left, 0);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             log::error("left framebuffer incomplete, cleaning up");
             incomplete = true;
@@ -296,7 +298,7 @@ class $modify(CCEGLViewProtocol) {
 
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.right);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color.right, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_stencil.right, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_depthStencil.right, 0);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             log::error("right framebuffer incomplete, cleaning up");
             incomplete = true;
