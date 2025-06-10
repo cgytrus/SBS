@@ -197,15 +197,25 @@ bool s_isRight;
 void cleanup() {
     if (s_vbo)
         glDeleteBuffers(1, &s_vbo);
+    s_vbo = 0;
     if (s_vao)
         glDeleteVertexArrays(1, &s_vao);
+    s_vao = 0;
     s_shader.cleanup();
+    s_leftLoc = 0;
+    s_rightLoc = 0;
     if (s_stencils[0] || s_stencils[1])
         glDeleteRenderbuffers(2, s_stencils);
+    s_stencils[0] = 0;
+    s_stencils[1] = 0;
     if (s_colors[0] || s_colors[1])
         glDeleteTextures(2, s_colors);
+    s_colors[0] = 0;
+    s_colors[1] = 0;
     if (s_fbos[0] || s_fbos[1])
         glDeleteFramebuffers(2, s_fbos);
+    s_fbos[0] = 0;
+    s_fbos[1] = 0;
 }
 
 GLint s_savedFboDraw, s_savedFboRead, s_savedTexture, s_savedRbo;
@@ -217,7 +227,7 @@ void startMod() {
 }
 void endMod() {
     glBindRenderbuffer(GL_RENDERBUFFER, s_savedRbo);
-    glBindTexture(GL_TEXTURE_2D, s_savedTexture);
+    ccGLBindTexture2D(s_savedTexture);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, s_savedFboRead);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_savedFboDraw);
 }
@@ -259,12 +269,12 @@ class $modify(CCEGLViewProtocol) {
         glGenTextures(2, s_colors);
         glGenRenderbuffers(2, s_stencils);
 
-        glBindTexture(GL_TEXTURE_2D, s_color.left);
+        ccGLBindTexture2D(s_color.left);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        glBindTexture(GL_TEXTURE_2D, s_color.right);
+        ccGLBindTexture2D(s_color.right);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
