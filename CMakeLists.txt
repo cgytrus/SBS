@@ -21,4 +21,5 @@ endif()
 
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 
+set(GEODE_BUNDLE_PDB ON)
 setup_geode_mod(${PROJECT_NAME})
