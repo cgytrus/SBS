@@ -214,65 +214,69 @@ class $modify(CCEGLViewProtocol) {
     }
 };
 
-struct ParallaxData { double parallax; float prevPos; };
-std::unordered_map<CCNode*, ParallaxData> s_parallax;
+std::unordered_map<CCNode*, double> s_parallax;
 std::unordered_map<int, double> s_groupParallax;
 
-void updateParallax() {
+void addParallax(CCNode* node, double parallax) {
+    if (!node)
+        return;
+    if (parallax == 0.0)
+        return;
+    auto& offset = s_parallax[node];
+    if (!s_parallax.contains(node))
+        offset = 0.0;
+    offset += parallax;
+    if (offset == 0.0)
+        s_parallax.erase(node);
+}
+
+void updateParallax(GJBaseGameLayer* pl) {
     s_parallax.clear();
     s_groupParallax.clear();
-    if (const GJBaseGameLayer* pl; (pl = PlayLayer::get()) || (pl = LevelEditorLayer::get())) {
-        CCDictionaryExt<int, CCArray*> groupDict = pl->m_groupDict;
-        if (pl->m_background)
-            s_parallax[pl->m_background] = { 0.1, 0.0f };
-        if (pl->m_middleground)
-            s_parallax[pl->m_middleground] = { 0.25, 0.0f };
-        for (const auto& command : pl->m_effectManager->m_unkVector560) {
-            if (command.m_lockToCameraX) {
-                if (!s_groupParallax.contains(command.m_targetGroupID))
-                    s_groupParallax[command.m_targetGroupID] = 0.0f;
-                s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
-            }
-            // TODO: better heuristics
-            // this just checks if its a 2.2 level because in 2.2 ppl already started using
-            // locking to camera to lock things to camera
-            // while in 2.1 the only way to lock to camera x was to lock to player x
-            // this also can't detect if there's another move trigger alongside the
-            // one that's setup to follow the camera
-            if (pl->m_level->m_gameVersion >= 22)
-                continue;
-            if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
-                if (!s_groupParallax.contains(command.m_targetGroupID))
-                    s_groupParallax[command.m_targetGroupID] = 0.0f;
-                s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
-            }
+    if (!pl)
+        return;
+    CCDictionaryExt<int, CCArray*> groupDict = pl->m_groupDict;
+    addParallax(pl->m_background, 0.1 - 1.0);
+    addParallax(pl->m_middleground, 0.25 - 1.0);
+    for (const auto& command : pl->m_effectManager->m_unkVector560) {
+        if (command.m_lockToCameraX) {
+            if (!s_groupParallax.contains(command.m_targetGroupID))
+                s_groupParallax[command.m_targetGroupID] = 0.0f;
+            s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
         }
-        for (const auto& [ id, parallax ] : s_groupParallax) {
-            if (!groupDict.contains(id))
-                continue;
-            for (const auto& obj : CCArrayExt<GameObject*>(groupDict[id])) {
-                if (!s_parallax.contains(obj))
-                    s_parallax[obj] = { 1.0, 0.0f };
-                s_parallax[obj].parallax -= parallax;
-            }
-        }
-    }
-}
-
-void applyParallax(bool left) {
-    for (auto& [ node, v ] : s_parallax) {
-        const double offset = (v.parallax - 1.0) * Mod::get()->getSettingValue<double>("distance");
-        if (offset == 0.0)
+        // TODO: better heuristics
+        // this just checks if its a 2.2 level because in 2.2 ppl already started using
+        // locking to camera to lock things to camera
+        // while in 2.1 the only way to lock to camera x was to lock to player x
+        // this also can't detect if there's another move trigger alongside the
+        // one that's setup to follow the camera
+        if (pl->m_level->m_gameVersion >= 22)
             continue;
-        if (left)
-            v.prevPos = node->getPositionX();
-        node->setPositionX(static_cast<float>(v.prevPos + (left ? offset : -offset)));
+        if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
+            if (!s_groupParallax.contains(command.m_targetGroupID))
+                s_groupParallax[command.m_targetGroupID] = 0.0f;
+            s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
+        }
+    }
+    for (const auto& [ id, parallax ] : s_groupParallax) {
+        if (!groupDict.contains(id))
+            continue;
+        for (const auto& obj : CCArrayExt<GameObject*>(groupDict[id])) {
+            addParallax(obj, -parallax);
+        }
     }
 }
 
-void undoParallax() {
-    for (auto& [ node, v ] : s_parallax) {
-        node->setPositionX(v.prevPos);
+void applyParallax(GJBaseGameLayer* pl, double mod) {
+    mod *= Mod::get()->getSettingValue<double>("distance");
+    for (const auto& [ node, offset ] : s_parallax) {
+        node->setPositionX(static_cast<float>(node->getPositionX() + offset * mod));
+        if (auto* obj = typeinfo_cast<GameObject*>(node)) {
+            obj->m_positionX += offset * mod;
+        }
+    }
+    if (pl) {
+        pl->updateGradientLayers();
     }
 }
 
@@ -304,9 +308,13 @@ class $modify(CCDirector) {
 
         startMod();
 
+        GJBaseGameLayer* pl = PlayLayer::get();
+        if (!pl)
+            pl = LevelEditorLayer::get();
+
         if (useParallax) {
-            updateParallax();
-            applyParallax(true);
+            updateParallax(pl);
+            applyParallax(pl, 1.0);
         }
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.left);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -320,7 +328,7 @@ class $modify(CCDirector) {
             showFPSLabel();
 
         if (useParallax)
-            applyParallax(false);
+            applyParallax(pl, -2.0);
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.right);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (m_pRunningScene)
@@ -333,7 +341,7 @@ class $modify(CCDirector) {
             showFPSLabel();
 
         if (useParallax)
-            undoParallax();
+            applyParallax(pl, 1.0);
 
         endMod();
 

@@ -29,7 +29,7 @@
 			"type": "float",
 			"name": "Distance",
 			"description": "Maximum distance of the 3D effect",
-			"default": 1.1,
+			"default": 20.0,
 			"min": 0.0,
 			"control": {
 				"arrows": true,
