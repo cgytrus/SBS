@@ -52,8 +52,6 @@ void main() {
 GLuint s_vao = 0;
 GLuint s_vbo = 0;
 
-bool s_isLeft;
-
 void cleanup() {
     if (s_vbo)
         glDeleteBuffers(1, &s_vbo);
@@ -216,28 +214,62 @@ class $modify(CCEGLViewProtocol) {
     }
 };
 
-// idk if this actually matters that much
-constexpr double IPD = 0.00665; // meters
-constexpr double NEAR_PLANE = 3.0; // meters, the distance to the screen (parallax 0)
-// in my case it roughly occupies the entire fov of my hmd, so i just put that in,
-// this will probably be close enough
-constexpr double SCREEN_SIZE = 104.0 / 180.0 * NEAR_PLANE; // meters
-double s_unitsPerMeter = 0.0;
-
 struct ParallaxData { double parallax; float prevPos; };
 std::unordered_map<CCNode*, ParallaxData> s_parallax;
 std::unordered_map<int, double> s_groupParallax;
 
-void applyParallax() {
-    for (auto& [ node, v ] : s_parallax) {
-        const double offset = (v.parallax - 1.0) * (IPD / 2.0) * s_unitsPerMeter;
-        if (offset == 0.0)
-            continue;
-        if (s_isLeft)
-            v.prevPos = node->getPositionX();
-        node->setPositionX(static_cast<float>(v.prevPos + (s_isLeft ? offset : -offset)));
+void updateParallax() {
+    s_parallax.clear();
+    s_groupParallax.clear();
+    if (const GJBaseGameLayer* pl; (pl = PlayLayer::get()) || (pl = LevelEditorLayer::get())) {
+        CCDictionaryExt<int, CCArray*> groupDict = pl->m_groupDict;
+        if (pl->m_background)
+            s_parallax[pl->m_background] = { 0.1, 0.0f };
+        if (pl->m_middleground)
+            s_parallax[pl->m_middleground] = { 0.25, 0.0f };
+        for (const auto& command : pl->m_effectManager->m_unkVector560) {
+            if (command.m_lockToCameraX) {
+                if (!s_groupParallax.contains(command.m_targetGroupID))
+                    s_groupParallax[command.m_targetGroupID] = 0.0f;
+                s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
+            }
+            // TODO: better heuristics
+            // this just checks if its a 2.2 level because in 2.2 ppl already started using
+            // locking to camera to lock things to camera
+            // while in 2.1 the only way to lock to camera x was to lock to player x
+            // this also can't detect if there's another move trigger alongside the
+            // one that's setup to follow the camera
+            if (pl->m_level->m_gameVersion >= 22)
+                continue;
+            if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
+                if (!s_groupParallax.contains(command.m_targetGroupID))
+                    s_groupParallax[command.m_targetGroupID] = 0.0f;
+                s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
+            }
+        }
+        for (const auto& [ id, parallax ] : s_groupParallax) {
+            if (!groupDict.contains(id))
+                continue;
+            for (const auto& obj : CCArrayExt<GameObject*>(groupDict[id])) {
+                if (!s_parallax.contains(obj))
+                    s_parallax[obj] = { 1.0, 0.0f };
+                s_parallax[obj].parallax -= parallax;
+            }
+        }
     }
 }
+
+void applyParallax(bool left) {
+    for (auto& [ node, v ] : s_parallax) {
+        const double offset = (v.parallax - 1.0) * Mod::get()->getSettingValue<double>("distance");
+        if (offset == 0.0)
+            continue;
+        if (left)
+            v.prevPos = node->getPositionX();
+        node->setPositionX(static_cast<float>(v.prevPos + (left ? offset : -offset)));
+    }
+}
+
 void undoParallax() {
     for (auto& [ node, v ] : s_parallax) {
         node->setPositionX(v.prevPos);
@@ -248,6 +280,12 @@ void undoParallax() {
 #include <Geode/modify/CCDirector.hpp>
 class $modify(CCDirector) {
     $override void drawScene() {
+        if (!Mod::get()->getSettingValue<bool>("enabled")) {
+            CCDirector::drawScene();
+            return;
+        }
+        const bool useParallax = Mod::get()->getSettingValue<bool>("parallax");
+
         this->calculateDeltaTime();
 
         if (!m_bPaused) {
@@ -266,47 +304,10 @@ class $modify(CCDirector) {
 
         startMod();
 
-        s_unitsPerMeter = this->getWinSize().width / SCREEN_SIZE;
-
-        s_parallax.clear();
-        s_groupParallax.clear();
-        if (const GJBaseGameLayer* pl; (pl = PlayLayer::get()) || (pl = LevelEditorLayer::get())) {
-            CCDictionaryExt<int, CCArray*> groupDict = pl->m_groupDict;
-            if (pl->m_background)
-                s_parallax[pl->m_background] = { 0.1, 0.0f };
-            if (pl->m_middleground)
-                s_parallax[pl->m_middleground] = { 0.25, 0.0f };
-            for (const auto& command : pl->m_effectManager->m_unkVector560) {
-                if (command.m_lockToCameraX) {
-                    if (!s_groupParallax.contains(command.m_targetGroupID))
-                        s_groupParallax[command.m_targetGroupID] = 0.0f;
-                    s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
-                }
-                // TODO: better heuristics
-                // this just checks if its a 2.2 level because in 2.2 ppl already started using
-                // locking to camera to lock things to camera
-                // while in 2.1 the only way to lock to camera x was to lock to player x
-                if (pl->m_level->m_gameVersion >= 22)
-                    continue;
-                if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
-                    if (!s_groupParallax.contains(command.m_targetGroupID))
-                        s_groupParallax[command.m_targetGroupID] = 0.0f;
-                    s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
-                }
-            }
-            for (const auto& [ id, parallax ] : s_groupParallax) {
-                if (!groupDict.contains(id))
-                    continue;
-                for (const auto& obj : CCArrayExt<GameObject*>(groupDict[id])) {
-                    if (!s_parallax.contains(obj))
-                        s_parallax[obj] = { 1.0, 0.0f };
-                    s_parallax[obj].parallax -= parallax;
-                }
-            }
+        if (useParallax) {
+            updateParallax();
+            applyParallax(true);
         }
-
-        s_isLeft = true;
-        applyParallax();
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.left);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (m_pRunningScene)
@@ -318,8 +319,8 @@ class $modify(CCDirector) {
         if (m_bDisplayFPS)
             showFPSLabel();
 
-        s_isLeft = false;
-        applyParallax();
+        if (useParallax)
+            applyParallax(false);
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.right);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (m_pRunningScene)
@@ -331,7 +332,9 @@ class $modify(CCDirector) {
         if (m_bDisplayFPS)
             showFPSLabel();
 
-        undoParallax();
+        if (useParallax)
+            undoParallax();
+
         endMod();
 
         kmGLPopMatrix();

@@ -11,5 +11,38 @@
 	"version": "v0.0.1",
 	"developer": "ConfiG",
 	"description": "half sbs rendering",
-	"early-load": true
+	"early-load": true,
+	"settings": {
+		"enabled": {
+			"type": "bool",
+			"name": "Enabled",
+			"description": "Toggle SBS rendering",
+			"default": true
+		},
+		"parallax": {
+			"type": "bool",
+			"name": "Parallax",
+			"description": "Toggle the 3D effect",
+			"default": true
+		},
+		"distance": {
+			"type": "float",
+			"name": "Distance",
+			"description": "Maximum distance of the 3D effect",
+			"default": 1.1,
+			"min": 0.0,
+			"control": {
+				"arrows": true,
+				"arrow-step": 0.1,
+				"big-arrows": true,
+				"big-arrow-step": 0.5,
+				"slider": false,
+				"input": true
+			},
+			"enable-if": "parallax"
+		}
+	},
+	"dependencies": {
+		"geode.custom-keybinds": ">=v1.10.4"
+	}
 }
