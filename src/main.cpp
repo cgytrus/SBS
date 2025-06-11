@@ -3,6 +3,7 @@
 using namespace geode::prelude;
 
 #include "Shader.hpp"
+#include "parallax.hpp"
 
 bool s_glewInitialized = false;
 CCSize s_lastFrameSize = {};
@@ -214,173 +215,6 @@ class $modify(CCEGLViewProtocol) {
     }
 };
 
-double s_parallaxDistance;
-
-struct ParallaxData {
-    double parallax;
-    CCPoint start;
-    CCPoint offset;
-};
-std::unordered_map<CCNode*, ParallaxData> s_parallax;
-void addParallax(CCNode* node, double parallax) {
-    if (!node)
-        return;
-    if (parallax == 0.0)
-        return;
-
-    ParallaxData data;
-    if (!s_parallax.contains(node)) {
-        data = {
-            0.0,
-            node->getPosition(),
-            { 0.0, 0.0 }
-        };
-    }
-    else {
-        data = s_parallax[node];
-    }
-
-    data.parallax += parallax;
-
-    node->setPosition(data.start);
-    float offset = static_cast<float>(data.parallax * s_parallaxDistance);
-    if (auto* parent = node->getParent())
-        data.offset = parent->convertToNodeSpace(parent->convertToWorldSpace(data.start) + CCPoint{ offset, 0.0 }) - data.start;
-    else
-        data.offset = CCPoint{ offset, 0.0 };
-    node->setPosition(data.start + data.offset);
-
-    if (data.parallax == 0.0) {
-        s_parallax.erase(node);
-        return;
-    }
-
-    s_parallax[node] = data;
-}
-
-struct ParallaxDataGameObject {
-    double parallax;
-    double start;
-    double offset;
-};
-std::unordered_map<GameObject*, ParallaxDataGameObject> s_parallaxGameObject;
-void addParallaxGameObject(GameObject* node, double parallax) {
-    if (!node)
-        return;
-    if (parallax == 0.0)
-        return;
-
-    ParallaxDataGameObject data;
-    if (!s_parallaxGameObject.contains(node)) {
-        data = {
-            0.0,
-            node->m_positionX,
-            0.0
-        };
-    }
-    else {
-        data = s_parallaxGameObject[node];
-    }
-
-    data.parallax += parallax;
-
-    data.offset = data.parallax * s_parallaxDistance;
-    node->m_positionX = data.start + data.offset;
-
-    if (data.parallax == 0.0) {
-        s_parallaxGameObject.erase(node);
-        return;
-    }
-
-    s_parallaxGameObject[node] = data;
-}
-
-std::unordered_map<int, double> s_groupParallax;
-void applyParallax1(GJBaseGameLayer* pl) {
-    s_parallaxDistance = Mod::get()->getSettingValue<double>("distance");
-    if (const auto* menu = MenuLayer::get()) {
-        if (menu->m_menuGameLayer && menu->m_menuGameLayer->m_backgroundSprite) {
-            addParallax(menu->m_menuGameLayer->m_backgroundSprite, 0.1 - 1.0);
-        }
-    }
-    if (!pl)
-        return;
-    CCDictionaryExt<int, CCArray*> groupDict = pl->m_groupDict;
-    for (const auto& command : pl->m_effectManager->m_unkVector560) {
-        if (command.m_lockToCameraX) {
-            if (!s_groupParallax.contains(command.m_targetGroupID))
-                s_groupParallax[command.m_targetGroupID] = 0.0f;
-            s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
-        }
-        // TODO: better heuristics
-        // this just checks if its a 2.2 level because in 2.2 ppl already started using
-        // locking to camera to lock things to camera
-        // while in 2.1 the only way to lock to camera x was to lock to player x
-        // this also can't detect if there's another move trigger alongside the
-        // one that's setup to follow the camera
-        if (pl->m_level->m_gameVersion >= 22)
-            continue;
-        if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
-            if (!s_groupParallax.contains(command.m_targetGroupID))
-                s_groupParallax[command.m_targetGroupID] = 0.0f;
-            s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
-        }
-    }
-    for (const auto& [ id, parallax ] : s_groupParallax) {
-        if (!groupDict.contains(id))
-            continue;
-        for (const auto& obj : CCArrayExt<GameObject*>(groupDict[id])) {
-            addParallaxGameObject(obj, -parallax);
-        }
-    }
-    s_groupParallax.clear();
-    pl->updateGradientLayers();
-}
-
-void applyParallax2(GJBaseGameLayer* pl) {
-    for (const auto& [ node, data ] : s_parallax) {
-        node->setPosition(data.start - data.offset);
-    }
-    for (const auto& [ node, data ] : s_parallaxGameObject) {
-        node->m_positionX = data.start - data.offset;
-    }
-    if (pl)
-        pl->updateGradientLayers();
-}
-
-void applyParallax3() {
-    for (const auto& [ node, data ] : s_parallax) {
-        node->setPosition(data.start);
-    }
-    for (const auto& [ node, data ] : s_parallaxGameObject) {
-        node->m_positionX = data.start;
-    }
-    s_parallax.clear();
-    s_parallaxGameObject.clear();
-}
-
-bool s_firstVisit = false;
-
-#include <Geode/modify/CCNode.hpp>
-class $modify(CCNode) {
-    $override void visit() {
-        if (s_firstVisit) {
-            if (auto* self = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
-                addParallax(this, self->getScaleX() / self->m_baseScale - 1.0);
-            }
-            else if (auto* self = typeinfo_cast<GJBaseGameLayer*>(this)) {
-                // TODO: fix background parallax idk
-                addParallax(self->m_background, 0.1 - 1.0);
-                addParallax(self->m_middleground, 0.25 - 1.0);
-                for (const auto& [ node, data ] : s_parallaxGameObject) {
-                    addParallax(node, data.parallax);
-                }
-            }
-        }
-        CCNode::visit();
-    }
-};
-
 // TODO: make more compatible
 #include <Geode/modify/CCDirector.hpp>
 class $modify(CCDirector) {
@@ -415,7 +249,6 @@ class $modify(CCDirector) {
 
         if (useParallax) {
             applyParallax1(pl);
-            s_firstVisit = true;
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.left);
@@ -430,7 +263,6 @@ class $modify(CCDirector) {
             showFPSLabel();
 
         if (useParallax) {
-            s_firstVisit = false;
             applyParallax2(pl);
         }
 
