@@ -231,8 +231,11 @@ void addParallax(CCNode* node, double parallax) {
 }
 
 void updateParallax(GJBaseGameLayer* pl) {
-    s_parallax.clear();
-    s_groupParallax.clear();
+    if (const auto* menu = MenuLayer::get()) {
+        if (menu->m_menuGameLayer && menu->m_menuGameLayer->m_backgroundSprite) {
+            addParallax(menu->m_menuGameLayer->m_backgroundSprite, 0.1 - 1.0);
+        }
+    }
     if (!pl)
         return;
     CCDictionaryExt<int, CCArray*> groupDict = pl->m_groupDict;
@@ -289,6 +292,9 @@ class $modify(CCDirector) {
             return;
         }
         const bool useParallax = Mod::get()->getSettingValue<bool>("parallax");
+
+        s_parallax.clear();
+        s_groupParallax.clear();
 
         this->calculateDeltaTime();
 
