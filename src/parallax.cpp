@@ -120,9 +120,17 @@ class $modify(CCSprite) {
 
     void offsetQuad() {
         const auto offset = getParallaxOffset(this);
+        if (m_bShouldBeHidden) {
+            m_fields->m_quadOffset = CCPoint{ 0.0f, 0.0f };
+            return;
+        }
         if (offset.isZero()) {
-            if (m_pobTextureAtlas && !m_fields->m_quadOffset.isZero())
-                m_pobTextureAtlas->updateQuad(&m_sQuad, m_uAtlasIndex);
+            if (!m_fields->m_quadOffset.isZero()) {
+                if (m_pobTextureAtlas && m_uAtlasIndex != CCSpriteIndexNotInitialized)
+                    m_pobTextureAtlas->updateQuad(&m_sQuad, m_uAtlasIndex);
+                else
+                    this->setDirty(true);
+            }
             m_fields->m_quadOffset = offset;
             return;
         }
@@ -134,8 +142,10 @@ class $modify(CCSprite) {
         m_sQuad.tr.vertices.y += offset.y;
         m_sQuad.br.vertices.x += offset.x;
         m_sQuad.br.vertices.y += offset.y;
-        if (m_pobTextureAtlas)
+        if (m_pobTextureAtlas && m_uAtlasIndex != CCSpriteIndexNotInitialized)
             m_pobTextureAtlas->updateQuad(&m_sQuad, m_uAtlasIndex);
+        else
+            this->setDirty(true);
         m_fields->m_quadOffset = offset;
     }
 
