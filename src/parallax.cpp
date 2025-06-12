@@ -22,9 +22,7 @@ class $modify(ParallaxNode, CCNode) {
         if (this->getParent()) {
             m_fields->m_parallax += static_cast<ParallaxNode*>(this->getParent())->getParallax();
         }
-        if (m_fields->m_ownParallax == 0.0f && m_fields->m_parallax != 0.0f) {
-            s_hasParallax.emplace(this);
-        }
+        s_hasParallax.emplace(this);
         m_fields->m_hasParallaxCache = true;
         return m_fields->m_parallax;
     }
@@ -41,9 +39,9 @@ void addParallax(CCNode* node, float parallax) {
     if (parallax == 0.0f)
         return;
     float& nodeParallax = static_cast<ParallaxNode*>(node)->m_fields->m_ownParallax;
-    if (nodeParallax == 0.0f)
-        s_hasParallax.emplace(node);
     nodeParallax += parallax;
+    if (nodeParallax != 0.0f)
+        s_hasParallax.emplace(node);
 }
 
 std::unordered_map<int, float> s_groupParallax;
@@ -108,7 +106,7 @@ CCPoint getParallaxOffset(CCNode* node) {
         return { 0.0f, 0.0f };
     kmMat4 mat;
     kmGLGetMatrix(KM_GL_MODELVIEW, &mat);
-    float d = mat.mat[0] * mat.mat[5] - mat.mat[1] * mat.mat[4];
+    const float d = mat.mat[0] * mat.mat[5] - mat.mat[1] * mat.mat[4];
     return { mat.mat[5] / d * offset, -mat.mat[1] / d * offset };
 }
 
