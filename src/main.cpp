@@ -243,12 +243,12 @@ class $modify(CCDirector) {
 
         startMod();
 
-        GJBaseGameLayer* pl = PlayLayer::get();
-        if (!pl)
-            pl = LevelEditorLayer::get();
+        GJBaseGameLayer* bgl = PlayLayer::get();
+        if (!bgl)
+            bgl = LevelEditorLayer::get();
 
         if (useParallax) {
-            applyParallax1(pl);
+            applyParallax1(bgl);
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.left);

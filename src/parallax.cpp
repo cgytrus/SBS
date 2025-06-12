@@ -47,19 +47,19 @@ void addParallax(CCNode* node, float parallax) {
 }
 
 std::unordered_map<int, float> s_groupParallax;
-void applyParallax1(GJBaseGameLayer* pl) {
+void applyParallax1(GJBaseGameLayer* bgl) {
     s_parallaxMod = Mod::get()->getSettingValue<float>("distance");
     if (const auto* menu = MenuLayer::get()) {
         if (menu->m_menuGameLayer && menu->m_menuGameLayer->m_backgroundSprite) {
             addParallax(menu->m_menuGameLayer->m_backgroundSprite, 0.1f - 1.0f);
         }
     }
-    if (!pl)
+    if (!bgl)
         return;
-    addParallax(pl->m_background, 0.1f - 1.0f);
-    addParallax(pl->m_middleground, 0.25f - 1.0f);
-    CCDictionaryExt<int, CCArray*> groupDict = pl->m_groupDict;
-    for (const auto& command : pl->m_effectManager->m_unkVector560) {
+    addParallax(bgl->m_background, 0.1f - 1.0f);
+    addParallax(bgl->m_middleground, 0.25f - 1.0f);
+    CCDictionaryExt<int, CCArray*> groupDict = bgl->m_groupDict;
+    for (const auto& command : bgl->m_effectManager->m_unkVector560) {
         if (command.m_lockToCameraX) {
             if (!s_groupParallax.contains(command.m_targetGroupID))
                 s_groupParallax[command.m_targetGroupID] = 0.0f;
@@ -71,7 +71,7 @@ void applyParallax1(GJBaseGameLayer* pl) {
         // while in 2.1 the only way to lock to camera x was to lock to player x
         // this also can't detect if there's another move trigger alongside the
         // one that's setup to follow the camera
-        if (pl->m_level->m_gameVersion >= 22)
+        if (bgl->m_level->m_gameVersion >= 22)
             continue;
         if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
             if (!s_groupParallax.contains(command.m_targetGroupID))
@@ -175,13 +175,14 @@ class $modify(CCNode) {
         if (auto* self = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
             addParallax(self, self->getScaleX() / self->m_baseScale - 1.0f);
         }
+        // TODO: this is slow
         if (typeinfo_cast<GJGradientLayer*>(this)) {
             s_currentGradientLayer = this;
-            GJBaseGameLayer* pl = PlayLayer::get();
-            if (!pl)
-                pl = LevelEditorLayer::get();
-            if (pl)
-                pl->updateGradientLayers();
+            GJBaseGameLayer* bgl = PlayLayer::get();
+            if (!bgl)
+                bgl = LevelEditorLayer::get();
+            if (bgl)
+                bgl->updateGradientLayers();
             s_currentGradientLayer = nullptr;
         }
         CCNode::visit();
