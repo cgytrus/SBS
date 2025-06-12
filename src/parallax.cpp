@@ -4,96 +4,66 @@ using namespace geode::prelude;
 
 #include "parallax.hpp"
 
-double s_parallaxDistance;
+float s_parallaxMod = 0.0f;
+std::set<CCNode*> s_hasParallax;
 
-template <typename PositionType>
-struct ParallaxData {
-    double parallax;
-    PositionType start;
-    PositionType offset;
+#include <Geode/modify/CCNode.hpp>
+class $modify(ParallaxNode, CCNode) {
+    struct Fields {
+        float m_ownParallax = 0.0f;
+        float m_parallax = 0.0f;
+        bool m_hasParallaxCache = false;
+    };
+
+    float getParallax() {
+        if (m_fields->m_hasParallaxCache)
+            return m_fields->m_parallax;
+        m_fields->m_parallax = m_fields->m_ownParallax;
+        if (this->getParent()) {
+            m_fields->m_parallax += static_cast<ParallaxNode*>(this->getParent())->getParallax();
+        }
+        if (m_fields->m_ownParallax == 0.0f && m_fields->m_parallax != 0.0f) {
+            s_hasParallax.emplace(this);
+        }
+        m_fields->m_hasParallaxCache = true;
+        return m_fields->m_parallax;
+    }
+
+    void destructor() {
+        s_hasParallax.erase(this);
+        CCNode::~CCNode();
+    }
 };
 
-template <typename NodeType, typename PositionType>
-void addParallax(std::unordered_map<NodeType*, ParallaxData<PositionType>>& map, NodeType* node, double parallax) {
+void addParallax(CCNode* node, float parallax) {
     if (!node)
         return;
-    if (parallax == 0.0)
+    if (parallax == 0.0f)
         return;
-
-    ParallaxData<PositionType> data;
-    if (!map.contains(node)) {
-        if constexpr (std::is_same_v<NodeType, CCNode>) {
-            data = {
-                0.0,
-                node->getPosition(),
-                { 0.0, 0.0 }
-            };
-        }
-        else if constexpr (std::is_same_v<NodeType, GameObject>) {
-            data = {
-                0.0,
-                node->m_positionX,
-                0.0
-            };
-        }
-    }
-    else {
-        data = map[node];
-    }
-
-    data.parallax += parallax;
-
-    if constexpr (std::is_same_v<PositionType, CCPoint>) {
-        node->setPosition(data.start);
-        float offset = static_cast<float>(data.parallax * s_parallaxDistance);
-        if (auto* parent = node->getParent())
-            data.offset = parent->convertToNodeSpace(parent->convertToWorldSpace(data.start) + CCPoint{ offset, 0.0 }) - data.start;
-        else
-            data.offset = CCPoint{ offset, 0.0 };
-        node->setPosition(data.start + data.offset);
-    }
-    else {
-        data.offset = data.parallax * s_parallaxDistance;
-        node->m_positionX = data.start + data.offset;
-    }
-
-    if (data.parallax == 0.0) {
-        map.erase(node);
-        return;
-    }
-
-    map[node] = data;
+    float& nodeParallax = static_cast<ParallaxNode*>(node)->m_fields->m_ownParallax;
+    if (nodeParallax == 0.0f)
+        s_hasParallax.emplace(node);
+    nodeParallax += parallax;
 }
 
-std::unordered_map<CCNode*, ParallaxData<CCPoint>> s_parallax;
-void addParallax(CCNode* node, double parallax) {
-    addParallax(s_parallax, node, parallax);
-}
-
-std::unordered_map<GameObject*, ParallaxData<double>> s_parallaxGameObject;
-void addParallaxGameObject(GameObject* node, double parallax) {
-    addParallax(s_parallaxGameObject, node, parallax);
-}
-
-bool s_firstVisit = false;
-
-std::unordered_map<int, double> s_groupParallax;
+std::unordered_map<int, float> s_groupParallax;
 void applyParallax1(GJBaseGameLayer* pl) {
-    s_firstVisit = true;
-    s_parallaxDistance = Mod::get()->getSettingValue<double>("distance");
+    s_parallaxMod = Mod::get()->getSettingValue<float>("distance");
     if (const auto* menu = MenuLayer::get()) {
         if (menu->m_menuGameLayer && menu->m_menuGameLayer->m_backgroundSprite) {
-            addParallax(menu->m_menuGameLayer->m_backgroundSprite, 0.1 - 1.0);
+            addParallax(menu->m_menuGameLayer->m_backgroundSprite, 0.1f - 1.0f);
         }
     }
     if (!pl)
         return;
+    addParallax(pl->m_background, 0.1f - 1.0f);
+    addParallax(pl->m_middleground, 0.25f - 1.0f);
     CCDictionaryExt<int, CCArray*> groupDict = pl->m_groupDict;
     for (const auto& command : pl->m_effectManager->m_unkVector560) {
         if (command.m_lockToCameraX) {
             if (!s_groupParallax.contains(command.m_targetGroupID))
                 s_groupParallax[command.m_targetGroupID] = 0.0f;
-            s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
+            s_groupParallax[command.m_targetGroupID] += static_cast<float>(command.m_moveModX);
         }
         // TODO: better heuristics
         // this just checks if its a 2.2 level because in 2.2 ppl already started using
@@ -106,59 +76,133 @@ void applyParallax1(GJBaseGameLayer* pl) {
         if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
             if (!s_groupParallax.contains(command.m_targetGroupID))
                 s_groupParallax[command.m_targetGroupID] = 0.0f;
-            s_groupParallax[command.m_targetGroupID] += command.m_moveModX;
+            s_groupParallax[command.m_targetGroupID] += static_cast<float>(command.m_moveModX);
         }
     }
     for (const auto& [ id, parallax ] : s_groupParallax) {
         if (!groupDict.contains(id))
             continue;
         for (const auto& obj : CCArrayExt<GameObject*>(groupDict[id])) {
-            addParallaxGameObject(obj, -parallax);
+            addParallax(obj, -parallax);
         }
     }
     s_groupParallax.clear();
-    pl->updateGradientLayers();
 }
 
 void applyParallax2(GJBaseGameLayer* pl) {
-    s_firstVisit = false;
-    for (const auto& [ node, data ] : s_parallax) {
-        node->setPosition(data.start - data.offset);
-    }
-    for (const auto& [ node, data ] : s_parallaxGameObject) {
-        node->m_positionX = data.start - data.offset;
-    }
-    if (pl)
-        pl->updateGradientLayers();
+    s_parallaxMod = -s_parallaxMod;
 }
 
 void applyParallax3() {
-    for (const auto& [ node, data ] : s_parallax) {
-        node->setPosition(data.start);
+    s_parallaxMod = 0.0;
+    for (const auto& node : s_hasParallax) {
+        static_cast<ParallaxNode*>(node)->m_fields->m_ownParallax = 0.0f;
+        static_cast<ParallaxNode*>(node)->m_fields->m_hasParallaxCache = false;
     }
-    for (const auto& [ node, data ] : s_parallaxGameObject) {
-        node->m_positionX = data.start;
-    }
-    s_parallax.clear();
-    s_parallaxGameObject.clear();
+    s_hasParallax.clear();
 }
 
-#include <Geode/modify/CCNode.hpp>
+CCPoint getParallaxOffset(CCNode* node) {
+    const float offset = static_cast<ParallaxNode*>(node)->getParallax() * s_parallaxMod;
+    if (offset == 0.0f)
+        return { 0.0f, 0.0f };
+    kmMat4 mat;
+    kmGLGetMatrix(KM_GL_MODELVIEW, &mat);
+    float d = mat.mat[0] * mat.mat[5] - mat.mat[1] * mat.mat[4];
+    return { mat.mat[5] / d * offset, -mat.mat[1] / d * offset };
+}
+
+#include <Geode/modify/CCSprite.hpp>
+class $modify(CCSprite) {
+    struct Fields {
+        CCPoint m_quadOffset = { 0.0f, 0.0f };
+    };
+
+    void offsetQuad() {
+        const auto offset = getParallaxOffset(this);
+        if (offset.isZero()) {
+            if (m_pobTextureAtlas && !m_fields->m_quadOffset.isZero())
+                m_pobTextureAtlas->updateQuad(&m_sQuad, m_uAtlasIndex);
+            m_fields->m_quadOffset = offset;
+            return;
+        }
+        m_sQuad.tl.vertices.x += offset.x;
+        m_sQuad.tl.vertices.y += offset.y;
+        m_sQuad.bl.vertices.x += offset.x;
+        m_sQuad.bl.vertices.y += offset.y;
+        m_sQuad.tr.vertices.x += offset.x;
+        m_sQuad.tr.vertices.y += offset.y;
+        m_sQuad.br.vertices.x += offset.x;
+        m_sQuad.br.vertices.y += offset.y;
+        if (m_pobTextureAtlas)
+            m_pobTextureAtlas->updateQuad(&m_sQuad, m_uAtlasIndex);
+        m_fields->m_quadOffset = offset;
+    }
+
+    void resetQuad() {
+        const auto off = m_fields->m_quadOffset;
+        if (off.isZero()) {
+            return;
+        }
+        m_sQuad.tl.vertices.x -= off.x;
+        m_sQuad.tl.vertices.y -= off.y;
+        m_sQuad.bl.vertices.x -= off.x;
+        m_sQuad.bl.vertices.y -= off.y;
+        m_sQuad.tr.vertices.x -= off.x;
+        m_sQuad.tr.vertices.y -= off.y;
+        m_sQuad.br.vertices.x -= off.x;
+        m_sQuad.br.vertices.y -= off.y;
+    }
+
+    $override void draw() {
+        this->offsetQuad();
+        CCSprite::draw();
+        this->resetQuad();
+    }
+
+    // this is a virtual in CCNode but it's only overridden in CCSprite, so should be fine
+    $override void updateTransform() {
+        this->resetQuad();
+        CCSprite::updateTransform();
+        this->offsetQuad();
+    }
+};
+
+CCNode* s_currentGradientLayer = nullptr;
+
 class $modify(CCNode) {
     $override void visit() {
-        if (s_firstVisit) {
-            if (auto* self = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
-                addParallax(this, self->getScaleX() / self->m_baseScale - 1.0);
-            }
-            else if (auto* self = typeinfo_cast<GJBaseGameLayer*>(this)) {
-                // TODO: fix background parallax idk
-                addParallax(self->m_background, 0.1 - 1.0);
-                addParallax(self->m_middleground, 0.25 - 1.0);
-                for (const auto& [ node, data ] : s_parallaxGameObject) {
-                    addParallax(node, data.parallax);
-                }
-            }
+        if (auto* self = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
+            addParallax(self, self->getScaleX() / self->m_baseScale - 1.0f);
+        }
+        if (typeinfo_cast<GJGradientLayer*>(this)) {
+            s_currentGradientLayer = this;
+            GJBaseGameLayer* pl = PlayLayer::get();
+            if (!pl)
+                pl = LevelEditorLayer::get();
+            if (pl)
+                pl->updateGradientLayers();
+            s_currentGradientLayer = nullptr;
         }
         CCNode::visit();
+    }
+};
+
+#include <Geode/modify/GameObject.hpp>
+class $modify(GameObject) {
+    $override CCPoint getRealPosition() {
+        if (!s_currentGradientLayer)
+            return GameObject::getRealPosition();
+        CCPoint offset = getParallaxOffset(this);
+        // TODO: hack, this will break with anything that isn't gradient triggers
+        CCNode* epic = this->getParent();
+        while (epic != s_currentGradientLayer->getParent()) {
+            if (epic == nullptr)
+                break;
+            offset.x /= epic->getScaleX();
+            offset.y /= epic->getScaleY();
+            epic = epic->getParent();
+        }
+        return GameObject::getRealPosition() + offset;
     }
 };
