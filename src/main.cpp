@@ -263,7 +263,7 @@ class $modify(CCDirector) {
             showFPSLabel();
 
         if (useParallax) {
-            applyParallax2(pl);
+            applyParallax2();
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.right);

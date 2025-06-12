@@ -89,7 +89,7 @@ void applyParallax1(GJBaseGameLayer* pl) {
     s_groupParallax.clear();
 }
 
-void applyParallax2(GJBaseGameLayer* pl) {
+void applyParallax2() {
     s_parallaxMod = -s_parallaxMod;
 }
 
