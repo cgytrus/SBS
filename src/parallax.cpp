@@ -5,7 +5,6 @@ using namespace geode::prelude;
 
 #include "parallax.hpp"
 
-float s_parallaxMod = 0.0f;
 std::set<CCNode*> s_hasParallax;
 
 #include <Geode/modify/CCNode.hpp>
@@ -45,30 +44,23 @@ void addParallax(CCNode* node, float parallax) {
         s_hasParallax.emplace(node);
 }
 
-class $modify(CCNode) {
-    $override void visit() {
-        if (auto* mise = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
-            addParallax(mise, mise->getScaleX() / mise->m_baseScale - 1.0f);
-        }
-        CCNode::visit();
-    }
-};
-
+float s_parallaxMod = 0.0f;
+float s_parallaxDistance = 0.0f;
 std::unordered_map<int, float> s_groupParallax;
 GJBaseGameLayer* s_bgl = nullptr;
-void applyParallax1(GJBaseGameLayer* bgl) {
-    s_parallaxMod = Mod::get()->getSettingValue<float>("distance");
+void applyParallax(GJBaseGameLayer* gl) {
+    s_parallaxDistance = Mod::get()->getSettingValue<float>("distance");
     if (const auto* menu = MenuLayer::get()) {
         if (menu->m_menuGameLayer && menu->m_menuGameLayer->m_backgroundSprite) {
             addParallax(menu->m_menuGameLayer->m_backgroundSprite, 0.1f - 1.0f);
         }
     }
-    if (!bgl)
+    if (!gl)
         return;
-    addParallax(bgl->m_background, 0.1f - 1.0f);
-    addParallax(bgl->m_middleground, 0.25f - 1.0f);
-    CCDictionaryExt<int, CCArray*> groupDict = bgl->m_groupDict;
-    for (const auto& command : bgl->m_effectManager->m_unkVector560) {
+    addParallax(gl->m_background, 0.1f - 1.0f);
+    addParallax(gl->m_middleground, 0.25f - 1.0f);
+    CCDictionaryExt<int, CCArray*> groupDict = gl->m_groupDict;
+    for (const auto& command : gl->m_effectManager->m_unkVector560) {
         if (command.m_lockToCameraX) {
             if (!s_groupParallax.contains(command.m_targetGroupID))
                 s_groupParallax[command.m_targetGroupID] = 0.0f;
@@ -80,7 +72,7 @@ void applyParallax1(GJBaseGameLayer* bgl) {
         // while in 2.1 the only way to lock to camera x was to lock to player x
         // this also can't detect if there's another move trigger alongside the
         // one that's setup to follow the camera
-        if (bgl->m_level->m_gameVersion >= 22)
+        if (gl->m_level->m_gameVersion >= 22)
             continue;
         if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
             if (!s_groupParallax.contains(command.m_targetGroupID))
@@ -98,33 +90,57 @@ void applyParallax1(GJBaseGameLayer* bgl) {
         }
     }
     s_groupParallax.clear();
-    s_bgl = bgl;
+    s_bgl = gl;
 }
 
-void applyParallax2() {
-    s_parallaxMod = -s_parallaxMod;
-}
+class $modify(CCNode) {
+    $override void visit() {
+        if (s_parallaxDistance == 0.0f)
+            return CCNode::visit();
+        if (auto* mise = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
+            addParallax(mise, mise->getScaleX() / mise->m_baseScale - 1.0f);
+        }
+        CCNode::visit();
+    }
+};
 
-void applyParallax3() {
-    s_parallaxMod = 0.0;
+void cleanupParallax() {
+    s_bgl = nullptr;
     for (const auto& node : s_hasParallax) {
         static_cast<ParallaxNode*>(node)->m_fields->m_ownParallax = 0.0f;
         static_cast<ParallaxNode*>(node)->m_fields->m_hasParallaxCache = false;
     }
     s_hasParallax.clear();
-    s_bgl = nullptr;
+    s_parallaxDistance = 0.0f;
 }
 
 CCPoint getParallaxOffset(CCNode* node) {
     if (!node)
         return { 0.0f, 0.0f };
-    const float offset = static_cast<ParallaxNode*>(node)->getParallax() * s_parallaxMod;
+    const float offset = static_cast<ParallaxNode*>(node)->getParallax() * s_parallaxDistance *
+        s_parallaxMod;
     if (offset == 0.0f)
         return { 0.0f, 0.0f };
     kmMat4 mat;
     kmGLGetMatrix(KM_GL_MODELVIEW, &mat);
     const float d = mat.mat[0] * mat.mat[5] - mat.mat[1] * mat.mat[4];
     return { mat.mat[5] / d * offset, -mat.mat[1] / d * offset };
+}
+
+void drawBoth() {
+    s_parallaxMod = 0.0f;
+    constexpr GLenum buffers[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, buffers);
+}
+void drawLeft() {
+    s_parallaxMod = 1.0f;
+    constexpr GLenum buffers[] { GL_COLOR_ATTACHMENT0 };
+    glDrawBuffers(1, buffers);
+}
+void drawRight() {
+    s_parallaxMod = -1.0f;
+    constexpr GLenum buffers[] { GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(1, buffers);
 }
 
 #include <Geode/modify/CCSprite.hpp>
@@ -180,9 +196,20 @@ class $modify(CCSprite) {
     }
 
     $override void draw() {
+        if (s_parallaxDistance == 0.0f)
+            return CCSprite::draw();
+
+        drawLeft();
         this->offsetQuad();
         CCSprite::draw();
         this->resetQuad();
+
+        drawRight();
+        this->offsetQuad();
+        CCSprite::draw();
+        this->resetQuad();
+
+        drawBoth();
     }
 
     // this is a virtual in CCNode but it's only overridden in CCSprite, so should be fine
@@ -190,6 +217,22 @@ class $modify(CCSprite) {
         this->resetQuad();
         CCSprite::updateTransform();
         this->offsetQuad();
+    }
+};
+
+#include <Geode/modify/CCSpriteBatchNode.hpp>
+class $modify(CCSpriteBatchNode) {
+    $override void draw() {
+        if (s_parallaxDistance == 0.0f)
+            return CCSpriteBatchNode::draw();
+
+        drawLeft();
+        CCSpriteBatchNode::draw();
+
+        drawRight();
+        CCSpriteBatchNode::draw();
+
+        drawBoth();
     }
 };
 
@@ -212,10 +255,7 @@ class $modify(CCLayerColor) {
         m_pSquareVertices[3].y += offset.y;
     }
 
-    $override void draw() {
-        auto* self = typeinfo_cast<GJGradientLayer*>(this);
-        if (!self || !s_bgl)
-            return CCLayerColor::draw();
+    void drawHook(const GJGradientLayer* self) {
         const auto* trigger = self->m_triggerObject;
         if (trigger->m_disable)
             return CCLayerColor::draw();
@@ -257,15 +297,44 @@ class $modify(CCLayerColor) {
             offsetTopRight({ -right, -up });
         }
     }
+
+    $override void draw() {
+        if (s_parallaxDistance == 0.0f)
+            return CCLayerColor::draw();
+
+        auto* self = typeinfo_cast<GJGradientLayer*>(this);
+        if (!self || !s_bgl)
+            return CCLayerColor::draw();
+        drawLeft();
+        drawHook(self);
+
+        drawRight();
+        drawHook(self);
+
+        drawBoth();
+    }
 };
 
 #include <Geode/modify/CCParticleSystemQuad.hpp>
 class $modify(CCParticleSystemQuad) {
     $override void draw() {
+        if (s_parallaxDistance == 0.0f)
+            return CCParticleSystemQuad::draw();
+
+        drawLeft();
         kmGLPushMatrix();
-        const auto offset = getParallaxOffset(this);
-        kmGLTranslatef(offset.x, offset.y, 0.0f);
+        const auto left = getParallaxOffset(this);
+        kmGLTranslatef(left.x, left.y, 0.0f);
         CCParticleSystemQuad::draw();
         kmGLPopMatrix();
+
+        drawRight();
+        kmGLPushMatrix();
+        const auto right = getParallaxOffset(this);
+        kmGLTranslatef(right.x, right.y, 0.0f);
+        CCParticleSystemQuad::draw();
+        kmGLPopMatrix();
+
+        drawBoth();
     }
 };

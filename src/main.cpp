@@ -12,23 +12,11 @@ static union {
     struct {
         GLuint left;
         GLuint right;
-    } s_fbo;
-    GLuint s_fbos[2];
-};
-static union {
-    struct {
-        GLuint left;
-        GLuint right;
     } s_color;
     GLuint s_colors[2];
 };
-static union {
-    struct {
-        GLuint left;
-        GLuint right;
-    } s_depthStencil;
-    GLuint s_depthStencils[2];
-};
+GLuint s_fbo;
+GLuint s_depthStencil;
 
 Shader s_shader;
 GLint s_leftLoc = 0;
@@ -63,20 +51,18 @@ void cleanup() {
     s_shader.cleanup();
     s_leftLoc = 0;
     s_rightLoc = 0;
-    if (s_depthStencils[0] || s_depthStencils[1])
-        glDeleteRenderbuffers(2, s_depthStencils);
-    s_depthStencils[0] = 0;
-    s_depthStencils[1] = 0;
+    if (s_depthStencil)
+        glDeleteRenderbuffers(1, &s_depthStencil);
+    s_depthStencil = 0;
     if (s_colors[0])
         ccGLDeleteTextureN(0, s_colors[0]);
     if (s_colors[1])
         ccGLDeleteTextureN(1, s_colors[1]);
     s_colors[0] = 0;
     s_colors[1] = 0;
-    if (s_fbos[0] || s_fbos[1])
-        glDeleteFramebuffers(2, s_fbos);
-    s_fbos[0] = 0;
-    s_fbos[1] = 0;
+    if (s_fbo)
+        glDeleteFramebuffers(3, &s_fbo);
+    s_fbo = 0;
 }
 
 GLint s_savedFboDraw, s_savedFboRead, s_savedTexture, s_savedRbo;
@@ -126,9 +112,9 @@ class $modify(CCEGLViewProtocol) {
 
         cleanup();
 
-        glGenFramebuffers(2, s_fbos);
+        glGenFramebuffers(1, &s_fbo);
         glGenTextures(2, s_colors);
-        glGenRenderbuffers(2, s_depthStencils);
+        glGenRenderbuffers(1, &s_depthStencil);
 
         ccGLBindTexture2D(s_color.left);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
@@ -140,27 +126,17 @@ class $modify(CCEGLViewProtocol) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        glBindRenderbuffer(GL_RENDERBUFFER, s_depthStencil.left);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
-
-        glBindRenderbuffer(GL_RENDERBUFFER, s_depthStencil.right);
+        glBindRenderbuffer(GL_RENDERBUFFER, s_depthStencil);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
 
         bool incomplete = false;
 
-        glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.left);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color.left, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_depthStencil.left, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, s_color.right, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_depthStencil, 0);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            log::error("left framebuffer incomplete, cleaning up");
-            incomplete = true;
-        }
-
-        glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.right);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color.right, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_depthStencil.right, 0);
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            log::error("right framebuffer incomplete, cleaning up");
+            log::error("framebuffer incomplete, cleaning up");
             incomplete = true;
         }
 
@@ -248,10 +224,12 @@ class $modify(CCDirector) {
             bgl = LevelEditorLayer::get();
 
         if (useParallax) {
-            applyParallax1(bgl);
+            applyParallax(bgl);
         }
 
-        glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.left);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
+        constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+        glDrawBuffers(2, both);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (m_pRunningScene)
             m_pRunningScene->visit();
@@ -263,22 +241,7 @@ class $modify(CCDirector) {
             showFPSLabel();
 
         if (useParallax) {
-            applyParallax2();
-        }
-
-        glBindFramebuffer(GL_FRAMEBUFFER, s_fbo.right);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (m_pRunningScene)
-            m_pRunningScene->visit();
-        if (m_pNotificationNode)
-            m_pNotificationNode->visit();
-        if (m_bDisplayStats)
-            showStats();
-        if (m_bDisplayFPS)
-            showFPSLabel();
-
-        if (useParallax) {
-            applyParallax3();
+            cleanupParallax();
         }
 
         endMod();
