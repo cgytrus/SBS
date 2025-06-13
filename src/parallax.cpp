@@ -45,6 +45,7 @@ void addParallax(CCNode* node, float parallax) {
 }
 
 std::unordered_map<int, float> s_groupParallax;
+GJBaseGameLayer* s_bgl = nullptr;
 void applyParallax1(GJBaseGameLayer* bgl) {
     s_parallaxMod = Mod::get()->getSettingValue<float>("distance");
     if (const auto* menu = MenuLayer::get()) {
@@ -84,11 +85,19 @@ void applyParallax1(GJBaseGameLayer* bgl) {
             addParallax(obj, -parallax);
         }
     }
+    s_bgl = bgl;
+    bgl->updateGradientLayers();
+    s_bgl = nullptr;
     s_groupParallax.clear();
 }
 
-void applyParallax2() {
+void applyParallax2(GJBaseGameLayer* bgl) {
     s_parallaxMod = -s_parallaxMod;
+    if (bgl) {
+        s_bgl = bgl;
+        bgl->updateGradientLayers();
+        s_bgl = nullptr;
+    }
 }
 
 void applyParallax3() {
@@ -176,22 +185,10 @@ class $modify(CCSprite) {
     }
 };
 
-CCNode* s_currentGradientLayer = nullptr;
-
 class $modify(CCNode) {
     $override void visit() {
         if (auto* self = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
             addParallax(self, self->getScaleX() / self->m_baseScale - 1.0f);
-        }
-        // TODO: this is slow
-        if (typeinfo_cast<GJGradientLayer*>(this)) {
-            s_currentGradientLayer = this;
-            GJBaseGameLayer* bgl = PlayLayer::get();
-            if (!bgl)
-                bgl = LevelEditorLayer::get();
-            if (bgl)
-                bgl->updateGradientLayers();
-            s_currentGradientLayer = nullptr;
         }
         CCNode::visit();
     }
@@ -200,18 +197,17 @@ class $modify(CCNode) {
 #include <Geode/modify/GameObject.hpp>
 class $modify(GameObject) {
     $override CCPoint getRealPosition() {
-        if (!s_currentGradientLayer)
+        if (!s_bgl)
             return GameObject::getRealPosition();
-        CCPoint offset = getParallaxOffset(this);
         // TODO: hack, this will break with anything that isn't gradient triggers
-        CCNode* epic = this->getParent();
-        while (epic != s_currentGradientLayer->getParent()) {
-            if (epic == nullptr)
-                break;
-            offset.x /= epic->getScaleX();
-            offset.y /= epic->getScaleY();
-            epic = epic->getParent();
-        }
+        kmGLPushMatrix();
+        kmMat4 mat;
+        kmGLGetMatrix(KM_GL_MODELVIEW, &mat);
+        float zoom = s_bgl->m_gameState.m_cameraZoom;
+        kmGLScalef(zoom, zoom, 1.0f);
+        kmGLRotatef(-s_bgl->m_gameState.m_cameraAngle, 0.0f, 0.0f, 1.0f);
+        CCPoint offset = getParallaxOffset(this);
+        kmGLPopMatrix();
         return GameObject::getRealPosition() + offset;
     }
 };
