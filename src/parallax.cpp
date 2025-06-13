@@ -114,6 +114,8 @@ void applyParallax3() {
 }
 
 CCPoint getParallaxOffset(CCNode* node) {
+    if (!node)
+        return { 0.0f, 0.0f };
     const float offset = static_cast<ParallaxNode*>(node)->getParallax() * s_parallaxMod;
     if (offset == 0.0f)
         return { 0.0f, 0.0f };
