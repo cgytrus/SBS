@@ -93,6 +93,8 @@ void applyParallax1(GJBaseGameLayer* bgl) {
             continue;
         for (const auto& obj : CCArrayExt<GameObject*>(groupDict[id])) {
             addParallax(obj, -parallax);
+            addParallax(obj->m_particle, -parallax);
+            addParallax(obj->m_glowSprite, -parallax);
         }
     }
     s_groupParallax.clear();
@@ -254,5 +256,16 @@ class $modify(CCLayerColor) {
             offsetTopLeft({ -left, -up });
             offsetTopRight({ -right, -up });
         }
+    }
+};
+
+#include <Geode/modify/CCParticleSystemQuad.hpp>
+class $modify(CCParticleSystemQuad) {
+    $override void draw() {
+        kmGLPushMatrix();
+        const auto offset = getParallaxOffset(this);
+        kmGLTranslatef(offset.x, offset.y, 0.0f);
+        CCParticleSystemQuad::draw();
+        kmGLPopMatrix();
     }
 };
