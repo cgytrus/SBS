@@ -1,4 +1,5 @@
 ﻿#include <Geode/Geode.hpp>
+#include <numbers>
 
 using namespace geode::prelude;
 
@@ -44,6 +45,15 @@ void addParallax(CCNode* node, float parallax) {
         s_hasParallax.emplace(node);
 }
 
+class $modify(CCNode) {
+    $override void visit() {
+        if (auto* mise = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
+            addParallax(mise, mise->getScaleX() / mise->m_baseScale - 1.0f);
+        }
+        CCNode::visit();
+    }
+};
+
 std::unordered_map<int, float> s_groupParallax;
 GJBaseGameLayer* s_bgl = nullptr;
 void applyParallax1(GJBaseGameLayer* bgl) {
@@ -85,19 +95,12 @@ void applyParallax1(GJBaseGameLayer* bgl) {
             addParallax(obj, -parallax);
         }
     }
-    s_bgl = bgl;
-    bgl->updateGradientLayers();
-    s_bgl = nullptr;
     s_groupParallax.clear();
+    s_bgl = bgl;
 }
 
-void applyParallax2(GJBaseGameLayer* bgl) {
+void applyParallax2() {
     s_parallaxMod = -s_parallaxMod;
-    if (bgl) {
-        s_bgl = bgl;
-        bgl->updateGradientLayers();
-        s_bgl = nullptr;
-    }
 }
 
 void applyParallax3() {
@@ -107,6 +110,7 @@ void applyParallax3() {
         static_cast<ParallaxNode*>(node)->m_fields->m_hasParallaxCache = false;
     }
     s_hasParallax.clear();
+    s_bgl = nullptr;
 }
 
 CCPoint getParallaxOffset(CCNode* node) {
@@ -185,29 +189,68 @@ class $modify(CCSprite) {
     }
 };
 
-class $modify(CCNode) {
-    $override void visit() {
-        if (auto* self = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
-            addParallax(self, self->getScaleX() / self->m_baseScale - 1.0f);
-        }
-        CCNode::visit();
+#include <Geode/modify/CCLayerColor.hpp>
+class $modify(CCLayerColor) {
+    void offsetBottomLeft(const CCPoint& offset) {
+        m_pSquareVertices[0].x += offset.x;
+        m_pSquareVertices[0].y += offset.y;
     }
-};
+    void offsetBottomRight(const CCPoint& offset) {
+        m_pSquareVertices[1].x += offset.x;
+        m_pSquareVertices[1].y += offset.y;
+    }
+    void offsetTopLeft(const CCPoint& offset) {
+        m_pSquareVertices[2].x += offset.x;
+        m_pSquareVertices[2].y += offset.y;
+    }
+    void offsetTopRight(const CCPoint& offset) {
+        m_pSquareVertices[3].x += offset.x;
+        m_pSquareVertices[3].y += offset.y;
+    }
 
-#include <Geode/modify/GameObject.hpp>
-class $modify(GameObject) {
-    $override CCPoint getRealPosition() {
-        if (!s_bgl)
-            return GameObject::getRealPosition();
-        // TODO: hack, this will break with anything that isn't gradient triggers
-        kmGLPushMatrix();
-        kmMat4 mat;
-        kmGLGetMatrix(KM_GL_MODELVIEW, &mat);
-        float zoom = s_bgl->m_gameState.m_cameraZoom;
-        kmGLScalef(zoom, zoom, 1.0f);
-        kmGLRotatef(-s_bgl->m_gameState.m_cameraAngle, 0.0f, 0.0f, 1.0f);
-        CCPoint offset = getParallaxOffset(this);
-        kmGLPopMatrix();
-        return GameObject::getRealPosition() + offset;
+    $override void draw() {
+        auto* self = typeinfo_cast<GJGradientLayer*>(this);
+        if (!self || !s_bgl)
+            return CCLayerColor::draw();
+        const auto* trigger = self->m_triggerObject;
+        if (trigger->m_disable)
+            return CCLayerColor::draw();
+
+        const auto ubl = getParallaxOffset(s_bgl->tryGetMainObject(trigger->m_upBottomLeftID));
+        const auto dbr = getParallaxOffset(s_bgl->tryGetMainObject(trigger->m_downBottomRightID));
+        const auto ltl = getParallaxOffset(s_bgl->tryGetMainObject(trigger->m_leftTopLeftID));
+        const auto rtr = getParallaxOffset(s_bgl->tryGetMainObject(trigger->m_rightTopRightID));
+
+        if (trigger->m_vertexMode) {
+            offsetBottomLeft(ubl);
+            offsetBottomRight(dbr);
+            offsetTopLeft(ltl);
+            offsetTopRight(rtr);
+
+            CCLayerColor::draw();
+
+            offsetBottomLeft(-ubl);
+            offsetBottomRight(-dbr);
+            offsetTopLeft(-ltl);
+            offsetTopRight(-rtr);
+        }
+        else {
+            const float up = ubl.y;
+            const float down = dbr.y;
+            const float left = ltl.x;
+            const float right = rtr.x;
+
+            offsetBottomLeft({ left, down });
+            offsetBottomRight({ right, down });
+            offsetTopLeft({ left, up });
+            offsetTopRight({ right, up });
+
+            CCLayerColor::draw();
+
+            offsetBottomLeft({ -left, -down });
+            offsetBottomRight({ -right, -down });
+            offsetTopLeft({ -left, -up });
+            offsetTopRight({ -right, -up });
+        }
     }
 };
