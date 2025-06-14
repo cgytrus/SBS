@@ -32,6 +32,13 @@ $execute {
         { Keybind::create(KEY_RightBracket, Modifier::None) },
         "SBS"
     });
+    BindManager::get()->registerBindable({
+        "parallax-debug"_spr,
+        "Toggle Parallax Debug",
+        "",
+        { Keybind::create(KEY_P, Modifier::Alt) },
+        "SBS"
+    });
 
     new EventListener([=](const InvokeBindEvent* event) {
         if (!event->isDown())
@@ -64,4 +71,12 @@ $execute {
         mod->setSettingValue("distance", mod->getSettingValue<double>("distance") + 0.1);
         return ListenerResult::Propagate;
     }, InvokeBindFilter(nullptr, "distance-inc"_spr));
+
+    new EventListener([=](const InvokeBindEvent* event) {
+        if (!event->isDown())
+            return ListenerResult::Propagate;
+        auto* mod = Mod::get();
+        mod->setSettingValue("parallax-debug", !mod->getSettingValue<bool>("parallax-debug"));
+        return ListenerResult::Propagate;
+    }, InvokeBindFilter(nullptr, "parallax-debug"_spr));
 }

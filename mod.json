@@ -40,6 +40,12 @@
 				"input": true
 			},
 			"enable-if": "parallax"
+		},
+		"parallax-debug": {
+			"type": "bool",
+			"name": "Parallax Debug",
+			"description": "Parallax debug view. Only works in debug builds",
+			"default": false
 		}
 	},
 	"dependencies": {

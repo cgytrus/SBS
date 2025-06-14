@@ -18,9 +18,16 @@ static union {
 GLuint s_fbo;
 GLuint s_depthStencil;
 
+#ifdef DEBUG
+GLuint s_debugFbo;
+GLuint s_debugDepth;
+GLuint s_debugStencil;
+#endif
+
 Shader s_shader;
 GLint s_leftLoc = 0;
 GLint s_rightLoc = 0;
+GLint s_debugLoc = 0;
 const char* s_vertShader = R"(
 attribute vec4 aPosition;
 varying vec2 Position;
@@ -33,9 +40,24 @@ const char* s_fragShader = R"(
 varying vec2 Position;
 uniform sampler2D left;
 uniform sampler2D right;
+uniform bool debug;
 void main() {
-    vec2 texCoords = vec2(mod(Position.x + 1.0, 1.0), (Position.y + 1.0) * 0.5);
-    gl_FragColor = texture2D(Position.x < 0.0 ? left : right, texCoords);
+    if (debug) {
+        //vec2 texCoords = vec2((Position.x + 1.0) * 0.5, (Position.y + 1.0) * 0.5);
+        vec2 texCoords = vec2(mod(Position.x + 1.0, 1.0), (Position.y + 1.0) * 0.5);
+        if (Position.x < 0.0) {
+            gl_FragColor = texture2D(left, texCoords);
+            return;
+        }
+        float d = texture2D(right, texCoords).r;
+        d -= 0.5;
+        d *= 1024.0;
+        gl_FragColor = vec4(max(d, 0.0), 0.0, -min(d, 0.0), 1.0);
+    }
+    else {
+        vec2 texCoords = vec2(mod(Position.x + 1.0, 1.0), (Position.y + 1.0) * 0.5);
+        gl_FragColor = texture2D(Position.x < 0.0 ? left : right, texCoords);
+    }
 }
 )";
 GLuint s_vao = 0;
@@ -61,8 +83,18 @@ void cleanup() {
     s_colors[0] = 0;
     s_colors[1] = 0;
     if (s_fbo)
-        glDeleteFramebuffers(3, &s_fbo);
+        glDeleteFramebuffers(1, &s_fbo);
     s_fbo = 0;
+#ifdef DEBUG
+    if (s_debugFbo)
+        glDeleteFramebuffers(1, &s_debugFbo);
+    s_debugFbo = 0;
+    if (s_debugDepth)
+        ccGLDeleteTexture(s_debugDepth);
+    if (s_debugStencil)
+        glDeleteRenderbuffers(1, &s_debugStencil);
+    s_debugStencil = 0;
+#endif
 }
 
 GLint s_savedFboDraw, s_savedFboRead, s_savedTexture, s_savedRbo;
@@ -116,6 +148,12 @@ class $modify(CCEGLViewProtocol) {
         glGenTextures(2, s_colors);
         glGenRenderbuffers(1, &s_depthStencil);
 
+#ifdef DEBUG
+        glGenFramebuffers(1, &s_debugFbo);
+        glGenTextures(1, &s_debugDepth);
+        glGenRenderbuffers(1, &s_debugStencil);
+#endif
+
         ccGLBindTexture2D(s_color.left);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -139,6 +177,25 @@ class $modify(CCEGLViewProtocol) {
             log::error("framebuffer incomplete, cleaning up");
             incomplete = true;
         }
+
+#ifdef DEBUG
+        ccGLBindTexture2D(s_debugDepth);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, w, h, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        glBindRenderbuffer(GL_RENDERBUFFER, s_debugStencil);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, w, h);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, s_debugFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color.left, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_debugDepth, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_debugStencil, 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            log::error("framebuffer incomplete, cleaning up");
+            incomplete = true;
+        }
+#endif
 
         if (incomplete) {
             cleanup();
@@ -166,6 +223,7 @@ class $modify(CCEGLViewProtocol) {
 
         s_leftLoc = glGetUniformLocation(s_shader.program, "left");
         s_rightLoc = glGetUniformLocation(s_shader.program, "right");
+        s_debugLoc = glGetUniformLocation(s_shader.program, "debug");
 
         constexpr GLfloat vertices[] = {
             // positions
@@ -195,11 +253,17 @@ class $modify(CCEGLViewProtocol) {
 #include <Geode/modify/CCDirector.hpp>
 class $modify(CCDirector) {
     $override void drawScene() {
-        if (!Mod::get()->getSettingValue<bool>("enabled")) {
+        bool enabled = Mod::get()->getSettingValue<bool>("enabled");
+        bool parallax = Mod::get()->getSettingValue<bool>("parallax");
+        bool parallaxDebug = false;
+#ifdef DEBUG
+        parallaxDebug = Mod::get()->getSettingValue<bool>("parallax-debug");
+#endif
+        if (!enabled && !parallaxDebug) {
             CCDirector::drawScene();
             return;
         }
-        const bool useParallax = Mod::get()->getSettingValue<bool>("parallax");
+        const bool useParallax = enabled && parallax || parallaxDebug;
 
         this->calculateDeltaTime();
 
@@ -227,9 +291,18 @@ class $modify(CCDirector) {
             applyParallax(bgl);
         }
 
-        glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
-        constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-        glDrawBuffers(2, both);
+        if (enabled) {
+            glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
+            constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+            glDrawBuffers(2, both);
+        }
+#ifdef DEBUG
+        else if (parallaxDebug) {
+            glBindFramebuffer(GL_FRAMEBUFFER, s_debugFbo);
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(GL_ALWAYS);
+        }
+#endif
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (m_pRunningScene)
             m_pRunningScene->visit();
@@ -248,23 +321,40 @@ class $modify(CCDirector) {
 
         kmGLPopMatrix();
 
-        glBindVertexArray(s_vao);
+#ifdef DEBUG
+        if (parallaxDebug) {
+            glDisable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LESS);
+        }
+#endif
 
-        ccGLUseProgram(s_shader.program);
+        if (enabled || parallaxDebug) {
+            glBindVertexArray(s_vao);
 
-        ccGLBindTexture2DN(0, s_color.left);
-        ccGLBindTexture2DN(1, s_color.right);
+            ccGLUseProgram(s_shader.program);
 
-        glUniform1i(s_leftLoc, 0);
-        glUniform1i(s_rightLoc, 1);
+            ccGLBindTexture2DN(0, s_color.left);
+            ccGLBindTexture2DN(1, s_color.right);
+#ifdef DEBUG
+            if (parallaxDebug) {
+                ccGLBindTexture2DN(1, s_debugDepth);
+            }
+#endif
 
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+            glUniform1i(s_leftLoc, 0);
+            glUniform1i(s_rightLoc, 1);
+#ifdef DEBUG
+            glUniform1i(s_debugLoc, parallaxDebug);
+#endif
 
-        glBindVertexArray(0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            glBindVertexArray(0);
 
 #ifndef GEODE_IS_MACOS
-        CC_INCREMENT_GL_DRAWS(1);
+            CC_INCREMENT_GL_DRAWS(1);
 #endif
+        }
 
         m_uTotalFrames++;
 
