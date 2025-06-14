@@ -195,38 +195,21 @@ class $modify(CCEGLViewProtocol) {
 
 bool s_debug = false;
 
-// TODO: make more compatible
-#include <Geode/modify/CCDirector.hpp>
-class $modify(CCDirector) {
-    static void onModify(auto& self) {
-        if (!self.setHookPriorityPre("cocos2d::CCDirector::drawScene", Priority::Last)) {
-            log::warn("Failed to set hook priority.");
-        }
-    }
-
-    $override void drawScene() {
+#include <Geode/modify/CCNode.hpp>
+class $modify(CCNode) {
+    $override void visit() {
+        if (static_cast<CCNode*>(this) != CCDirector::get()->getRunningScene())
+            return CCNode::visit();
         bool enabled = Mod::get()->getSettingValue<bool>("enabled");
         bool parallax = Mod::get()->getSettingValue<bool>("parallax");
         s_debug = false;
 #ifdef DEBUG
         s_debug = Mod::get()->getSettingValue<bool>("parallax-debug");
 #else
-        if (!enabled) {
-            CCDirector::drawScene();
-            return;
-        }
+        if (!enabled && !s_debug)
+            return CCNode::visit();
 #endif
         const bool useParallax = enabled && parallax || s_debug;
-
-        this->calculateDeltaTime();
-
-        if (!m_bPaused) {
-            m_pScheduler->update(m_fDeltaTime);
-        }
-
-        if (m_pobOpenGLView) {
-            m_pobOpenGLView->pollInputEvents();
-        }
 
         startMod();
 
@@ -234,37 +217,20 @@ class $modify(CCDirector) {
             glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
             constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
             glDrawBuffers(2, both);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         }
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        if (m_pNextScene) {
-            this->setNextScene();
-        }
-
-        kmGLPushMatrix();
 
         GJBaseGameLayer* bgl = PlayLayer::get();
         if (!bgl)
             bgl = LevelEditorLayer::get();
 
-        if (useParallax) {
+        if (useParallax)
             applyParallax(bgl);
-        }
 
-        if (m_pRunningScene)
-            m_pRunningScene->visit();
-        if (m_pNotificationNode)
-            m_pNotificationNode->visit();
-        if (m_bDisplayStats)
-            showStats();
-        if (m_bDisplayFPS)
-            showFPSLabel();
+        CCNode::visit();
 
-        if (useParallax) {
+        if (useParallax)
             cleanupParallax();
-        }
-
-        kmGLPopMatrix();
 
         endMod();
 
@@ -288,14 +254,6 @@ class $modify(CCDirector) {
 #endif
         }
 
-        m_uTotalFrames++;
-
-        if (m_pobOpenGLView) {
-            m_pobOpenGLView->swapBuffers();
-        }
-
-        if (m_bDisplayStats) {
-            calculateMPF();
-        }
+        s_debug = false;
     }
 };
