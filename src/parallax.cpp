@@ -50,7 +50,6 @@ float s_parallaxDistance = 0.0f;
 std::unordered_map<int, float> s_groupParallax;
 GJBaseGameLayer* s_bgl = nullptr;
 void applyParallax(GJBaseGameLayer* gl) {
-    s_debug = Mod::get()->getSettingValue<bool>("parallax-debug");
     if (!s_debug)
         s_parallaxDistance = Mod::get()->getSettingValue<float>("distance");
     if (const auto* menu = MenuLayer::get()) {
@@ -120,19 +119,16 @@ void cleanupParallax() {
 ccVertex3F getParallaxOffset(CCNode* node) {
     if (!node)
         return { 0.0f, 0.0f, 0.0f };
-    const float z = static_cast<ParallaxNode*>(node)->getParallax();
-#ifdef DEBUG
-    if (s_debug) {
-        return { z, z, z };
-    }
-#endif
+    float z = static_cast<ParallaxNode*>(node)->getParallax();
     const float offset = z * s_parallaxDistance * s_parallaxMod;
+    if (!s_debug)
+        z = 0.0f;
     if (offset == 0.0f)
-        return { 0.0f, 0.0f, 0.0f };
+        return { 0.0f, 0.0f, z };
     kmMat4 mat;
     kmGLGetMatrix(KM_GL_MODELVIEW, &mat);
     const float d = mat.mat[0] * mat.mat[5] - mat.mat[1] * mat.mat[4];
-    return { mat.mat[5] / d * offset, -mat.mat[1] / d * offset };
+    return { mat.mat[5] / d * offset, -mat.mat[1] / d * offset, z };
 }
 
 void drawBoth() {
@@ -163,8 +159,9 @@ class $modify(CCSprite) {
             m_fields->m_quadOffset = { 0.0f, 0.0f, 0.0f };
             return;
         }
-        if (offset.x == 0.0f && offset.y == 0.0f) {
-            if (m_fields->m_quadOffset.x != 0.0f || m_fields->m_quadOffset.y != 0.0f) {
+        if (offset.x == 0.0f && offset.y == 0.0f && offset.z == 0.0f) {
+            if (m_fields->m_quadOffset.x != 0.0f || m_fields->m_quadOffset.y != 0.0f ||
+                m_fields->m_quadOffset.z != 0.0f) {
                 if (m_pobTextureAtlas && m_uAtlasIndex != CCSpriteIndexNotInitialized)
                     m_pobTextureAtlas->updateQuad(&m_sQuad, m_uAtlasIndex);
                 else
@@ -174,25 +171,18 @@ class $modify(CCSprite) {
             return;
         }
 
-#ifdef DEBUG
-        if (s_debug) {
-            m_sQuad.tl.vertices.z += offset.z;
-            m_sQuad.bl.vertices.z += offset.z;
-            m_sQuad.tr.vertices.z += offset.z;
-            m_sQuad.br.vertices.z += offset.z;
-        }
-        else
-#endif
-        {
-            m_sQuad.tl.vertices.x += offset.x;
-            m_sQuad.tl.vertices.y += offset.y;
-            m_sQuad.bl.vertices.x += offset.x;
-            m_sQuad.bl.vertices.y += offset.y;
-            m_sQuad.tr.vertices.x += offset.x;
-            m_sQuad.tr.vertices.y += offset.y;
-            m_sQuad.br.vertices.x += offset.x;
-            m_sQuad.br.vertices.y += offset.y;
-        }
+        m_sQuad.tl.vertices.x += offset.x;
+        m_sQuad.tl.vertices.y += offset.y;
+        m_sQuad.tl.vertices.z += offset.z;
+        m_sQuad.bl.vertices.x += offset.x;
+        m_sQuad.bl.vertices.y += offset.y;
+        m_sQuad.bl.vertices.z += offset.z;
+        m_sQuad.tr.vertices.x += offset.x;
+        m_sQuad.tr.vertices.y += offset.y;
+        m_sQuad.tr.vertices.z += offset.z;
+        m_sQuad.br.vertices.x += offset.x;
+        m_sQuad.br.vertices.y += offset.y;
+        m_sQuad.br.vertices.z += offset.z;
 
         if (m_pobTextureAtlas && m_uAtlasIndex != CCSpriteIndexNotInitialized)
             m_pobTextureAtlas->updateQuad(&m_sQuad, m_uAtlasIndex);
@@ -203,55 +193,39 @@ class $modify(CCSprite) {
 
     void resetQuad() {
         const auto off = m_fields->m_quadOffset;
-        if (off.x == 0.0f && off.y == 0.0f) {
+        if (off.x == 0.0f && off.y == 0.0f && off.z == 0.0f) {
             return;
         }
 
-#ifdef DEBUG
-        if (s_debug) {
-            m_sQuad.tl.vertices.z -= off.z;
-            m_sQuad.bl.vertices.z -= off.z;
-            m_sQuad.tr.vertices.z -= off.z;
-            m_sQuad.br.vertices.z -= off.z;
-        }
-        else
-#endif
-        {
-            m_sQuad.tl.vertices.x -= off.x;
-            m_sQuad.tl.vertices.y -= off.y;
-            m_sQuad.bl.vertices.x -= off.x;
-            m_sQuad.bl.vertices.y -= off.y;
-            m_sQuad.tr.vertices.x -= off.x;
-            m_sQuad.tr.vertices.y -= off.y;
-            m_sQuad.br.vertices.x -= off.x;
-            m_sQuad.br.vertices.y -= off.y;
-        }
+        m_sQuad.tl.vertices.x -= off.x;
+        m_sQuad.tl.vertices.y -= off.y;
+        m_sQuad.tl.vertices.z -= off.z;
+        m_sQuad.bl.vertices.x -= off.x;
+        m_sQuad.bl.vertices.y -= off.y;
+        m_sQuad.bl.vertices.z -= off.z;
+        m_sQuad.tr.vertices.x -= off.x;
+        m_sQuad.tr.vertices.y -= off.y;
+        m_sQuad.tr.vertices.z -= off.z;
+        m_sQuad.br.vertices.x -= off.x;
+        m_sQuad.br.vertices.y -= off.y;
+        m_sQuad.br.vertices.z -= off.z;
+    }
+
+    void drawHook() {
+        this->offsetQuad();
+        CCSprite::draw();
+        this->resetQuad();
     }
 
     $override void draw() {
-#ifdef DEBUG
-        if (s_debug) {
-            this->setShaderProgram(getDebugShaderFor(this->getShaderProgram()));
-            this->offsetQuad();
-            CCSprite::draw();
-            this->resetQuad();
-            this->setShaderProgram(getOrigShaderFor(this->getShaderProgram()));
-            return;
-        }
-#endif
-
         if (s_parallaxDistance == 0.0f)
-            return CCSprite::draw();
+            return this->drawHook();
 
         drawLeft();
-        this->offsetQuad();
-        CCSprite::draw();
-        this->resetQuad();
+        this->drawHook();
 
         drawRight();
-        this->offsetQuad();
-        CCSprite::draw();
-        this->resetQuad();
+        this->drawHook();
 
         drawBoth();
     }
@@ -267,15 +241,6 @@ class $modify(CCSprite) {
 #include <Geode/modify/CCSpriteBatchNode.hpp>
 class $modify(CCSpriteBatchNode) {
     $override void draw() {
-#ifdef DEBUG
-        if (s_debug) {
-            this->setShaderProgram(getDebugShaderFor(this->getShaderProgram()));
-            CCSpriteBatchNode::draw();
-            this->setShaderProgram(getOrigShaderFor(this->getShaderProgram()));
-            return;
-        }
-#endif
-
         if (s_parallaxDistance == 0.0f)
             return CCSpriteBatchNode::draw();
 
@@ -291,6 +256,9 @@ class $modify(CCSpriteBatchNode) {
 
 #include <Geode/modify/CCLayerColor.hpp>
 class $modify(CCLayerColor) {
+    struct Fields {
+        ccVertex3F m_myEpicVertices[4];
+    };
     void offsetBottomLeft(const float& x, const float& y) {
         m_pSquareVertices[0].x += x;
         m_pSquareVertices[0].y += y;
@@ -308,7 +276,37 @@ class $modify(CCLayerColor) {
         m_pSquareVertices[3].y += y;
     }
 
+    void drawDebug(float bl, float br, float tl, float tr) {
+        m_fields->m_myEpicVertices[0].x = m_pSquareVertices[0].x;
+        m_fields->m_myEpicVertices[0].y = m_pSquareVertices[0].y;
+        m_fields->m_myEpicVertices[0].z = bl;
+
+        m_fields->m_myEpicVertices[1].x = m_pSquareVertices[1].x;
+        m_fields->m_myEpicVertices[1].y = m_pSquareVertices[1].y;
+        m_fields->m_myEpicVertices[1].z = br;
+
+        m_fields->m_myEpicVertices[2].x = m_pSquareVertices[2].x;
+        m_fields->m_myEpicVertices[2].y = m_pSquareVertices[2].y;
+        m_fields->m_myEpicVertices[2].z = tl;
+
+        m_fields->m_myEpicVertices[3].x = m_pSquareVertices[3].x;
+        m_fields->m_myEpicVertices[3].y = m_pSquareVertices[3].y;
+        m_fields->m_myEpicVertices[3].z = tr;
+
+        this->getShaderProgram()->use();
+        this->getShaderProgram()->setUniformsForBuiltins();
+        ccGLEnableVertexAttribs(3);
+        glVertexAttribPointer(0, 3, 0x1406, false, 0, &m_fields->m_myEpicVertices);
+        glVertexAttribPointer(1, 4, 0x1406, false, 0, &m_pSquareColors);
+        ccGLBlendFunc(m_tBlendFunc.src, m_tBlendFunc.dst);
+        glDrawArrays(5, 0, 4);
+        CC_INCREMENT_GL_DRAWS(1);
+    }
+
     void drawHook(const GJGradientLayer* self) {
+        if (!s_bgl)
+            return CCLayerColor::draw();
+
         const auto* trigger = self->m_triggerObject;
         if (trigger->m_disable)
             return CCLayerColor::draw();
@@ -319,6 +317,11 @@ class $modify(CCLayerColor) {
         const auto rtr = getParallaxOffset(s_bgl->tryGetMainObject(trigger->m_rightTopRightID));
 
         if (trigger->m_vertexMode) {
+            if (s_debug) {
+                this->drawDebug(ubl.z, dbr.z, ltl.z, rtr.z);
+                return;
+            }
+
             offsetBottomLeft(ubl.x, ubl.y);
             offsetBottomRight(dbr.x, dbr.y);
             offsetTopLeft(ltl.x, ltl.y);
@@ -332,6 +335,10 @@ class $modify(CCLayerColor) {
             offsetTopRight(-rtr.x, -rtr.y);
         }
         else {
+            // dont bother, idk how this would work
+            if (s_debug)
+                return CCLayerColor::draw();
+
             const float up = ubl.y;
             const float down = dbr.y;
             const float left = ltl.x;
@@ -352,26 +359,18 @@ class $modify(CCLayerColor) {
     }
 
     $override void draw() {
-#ifdef DEBUG
-        if (s_debug) {
-            this->setShaderProgram(getDebugShaderFor(this->getShaderProgram()));
-            CCLayerColor::draw();
-            this->setShaderProgram(getOrigShaderFor(this->getShaderProgram()));
-            return;
-        }
-#endif
+        auto* self = typeinfo_cast<GJGradientLayer*>(this);
+        if (!self)
+            return CCLayerColor::draw();
 
         if (s_parallaxDistance == 0.0f)
-            return CCLayerColor::draw();
+            return this->drawHook(self);
 
-        auto* self = typeinfo_cast<GJGradientLayer*>(this);
-        if (!self || !s_bgl)
-            return CCLayerColor::draw();
         drawLeft();
-        drawHook(self);
+        this->drawHook(self);
 
         drawRight();
-        drawHook(self);
+        this->drawHook(self);
 
         drawBoth();
     }
@@ -380,16 +379,26 @@ class $modify(CCLayerColor) {
 #include <Geode/modify/CCParticleSystemQuad.hpp>
 class $modify(CCParticleSystemQuad) {
     $override void draw() {
-#ifdef DEBUG
+        // TODO: make debug mode not  have to do this 👍
         if (s_debug) {
-            kmGLPushMatrix();
             const auto offset = getParallaxOffset(this);
-            kmGLTranslatef(0.0f, 0.0f, offset.z);
-            CCParticleSystemQuad::draw();
-            kmGLPopMatrix();
-            return;
+            if (offset.z == 0.0f)
+                return CCParticleSystemQuad::draw();
+            for (size_t i = 0; i < m_uParticleCount; i++) {
+                m_pQuads[i].tl.vertices.z += offset.z;
+                m_pQuads[i].bl.vertices.z += offset.z;
+                m_pQuads[i].tr.vertices.z += offset.z;
+                m_pQuads[i].br.vertices.z += offset.z;
+            }
+            CCParticleSystemQuad::postStep();
+            for (size_t i = 0; i < m_uParticleCount; i++) {
+                m_pQuads[i].tl.vertices.z -= offset.z;
+                m_pQuads[i].bl.vertices.z -= offset.z;
+                m_pQuads[i].tr.vertices.z -= offset.z;
+                m_pQuads[i].br.vertices.z -= offset.z;
+            }
+            return CCParticleSystemQuad::draw();
         }
-#endif
 
         if (s_parallaxDistance == 0.0f)
             return CCParticleSystemQuad::draw();

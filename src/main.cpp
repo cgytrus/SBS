@@ -18,12 +18,6 @@ static union {
 GLuint s_fbo;
 GLuint s_depthStencil;
 
-#ifdef DEBUG
-GLuint s_debugFbo;
-GLuint s_debugDepth;
-GLuint s_debugStencil;
-#endif
-
 Shader s_shader;
 GLint s_leftLoc = 0;
 GLint s_rightLoc = 0;
@@ -40,24 +34,9 @@ const char* s_fragShader = R"(
 varying vec2 Position;
 uniform sampler2D left;
 uniform sampler2D right;
-uniform bool debug;
 void main() {
-    if (debug) {
-        //vec2 texCoords = vec2((Position.x + 1.0) * 0.5, (Position.y + 1.0) * 0.5);
-        vec2 texCoords = vec2(mod(Position.x + 1.0, 1.0), (Position.y + 1.0) * 0.5);
-        if (Position.x < 0.0) {
-            gl_FragColor = texture2D(left, texCoords);
-            return;
-        }
-        float d = texture2D(right, texCoords).r;
-        d -= 0.5;
-        d *= 1024.0;
-        gl_FragColor = vec4(max(d, 0.0), 0.0, -min(d, 0.0), 1.0);
-    }
-    else {
-        vec2 texCoords = vec2(mod(Position.x + 1.0, 1.0), (Position.y + 1.0) * 0.5);
-        gl_FragColor = texture2D(Position.x < 0.0 ? left : right, texCoords);
-    }
+    vec2 texCoords = vec2(mod(Position.x + 1.0, 1.0), (Position.y + 1.0) * 0.5);
+    gl_FragColor = texture2D(Position.x < 0.0 ? left : right, texCoords);
 }
 )";
 GLuint s_vao = 0;
@@ -85,16 +64,6 @@ void cleanup() {
     if (s_fbo)
         glDeleteFramebuffers(1, &s_fbo);
     s_fbo = 0;
-#ifdef DEBUG
-    if (s_debugFbo)
-        glDeleteFramebuffers(1, &s_debugFbo);
-    s_debugFbo = 0;
-    if (s_debugDepth)
-        ccGLDeleteTexture(s_debugDepth);
-    if (s_debugStencil)
-        glDeleteRenderbuffers(1, &s_debugStencil);
-    s_debugStencil = 0;
-#endif
 }
 
 GLint s_savedFboDraw, s_savedFboRead, s_savedTexture, s_savedRbo;
@@ -148,12 +117,6 @@ class $modify(CCEGLViewProtocol) {
         glGenTextures(2, s_colors);
         glGenRenderbuffers(1, &s_depthStencil);
 
-#ifdef DEBUG
-        glGenFramebuffers(1, &s_debugFbo);
-        glGenTextures(1, &s_debugDepth);
-        glGenRenderbuffers(1, &s_debugStencil);
-#endif
-
         ccGLBindTexture2D(s_color.left);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -177,25 +140,6 @@ class $modify(CCEGLViewProtocol) {
             log::error("framebuffer incomplete, cleaning up");
             incomplete = true;
         }
-
-#ifdef DEBUG
-        ccGLBindTexture2D(s_debugDepth);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, w, h, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        glBindRenderbuffer(GL_RENDERBUFFER, s_debugStencil);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, w, h);
-
-        glBindFramebuffer(GL_FRAMEBUFFER, s_debugFbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color.left, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_debugDepth, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_debugStencil, 0);
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            log::error("framebuffer incomplete, cleaning up");
-            incomplete = true;
-        }
-#endif
 
         if (incomplete) {
             cleanup();
@@ -249,21 +193,30 @@ class $modify(CCEGLViewProtocol) {
     }
 };
 
+bool s_debug = false;
+
 // TODO: make more compatible
 #include <Geode/modify/CCDirector.hpp>
 class $modify(CCDirector) {
+    static void onModify(auto& self) {
+        if (!self.setHookPriorityPre("cocos2d::CCDirector::drawScene", Priority::Last)) {
+            log::warn("Failed to set hook priority.");
+        }
+    }
+
     $override void drawScene() {
         bool enabled = Mod::get()->getSettingValue<bool>("enabled");
         bool parallax = Mod::get()->getSettingValue<bool>("parallax");
-        bool parallaxDebug = false;
+        s_debug = false;
 #ifdef DEBUG
-        parallaxDebug = Mod::get()->getSettingValue<bool>("parallax-debug");
-#endif
-        if (!enabled && !parallaxDebug) {
+        s_debug = Mod::get()->getSettingValue<bool>("parallax-debug");
+#else
+        if (!enabled) {
             CCDirector::drawScene();
             return;
         }
-        const bool useParallax = enabled && parallax || parallaxDebug;
+#endif
+        const bool useParallax = enabled && parallax || s_debug;
 
         this->calculateDeltaTime();
 
@@ -275,13 +228,20 @@ class $modify(CCDirector) {
             m_pobOpenGLView->pollInputEvents();
         }
 
+        startMod();
+
+        if (enabled) {
+            glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
+            constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+            glDrawBuffers(2, both);
+        }
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
         if (m_pNextScene) {
             this->setNextScene();
         }
 
         kmGLPushMatrix();
-
-        startMod();
 
         GJBaseGameLayer* bgl = PlayLayer::get();
         if (!bgl)
@@ -291,19 +251,6 @@ class $modify(CCDirector) {
             applyParallax(bgl);
         }
 
-        if (enabled) {
-            glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
-            constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-            glDrawBuffers(2, both);
-        }
-#ifdef DEBUG
-        else if (parallaxDebug) {
-            glBindFramebuffer(GL_FRAMEBUFFER, s_debugFbo);
-            glEnable(GL_DEPTH_TEST);
-            glDepthFunc(GL_ALWAYS);
-        }
-#endif
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (m_pRunningScene)
             m_pRunningScene->visit();
         if (m_pNotificationNode)
@@ -317,35 +264,20 @@ class $modify(CCDirector) {
             cleanupParallax();
         }
 
-        endMod();
-
         kmGLPopMatrix();
 
-#ifdef DEBUG
-        if (parallaxDebug) {
-            glDisable(GL_DEPTH_TEST);
-            glDepthFunc(GL_LESS);
-        }
-#endif
+        endMod();
 
-        if (enabled || parallaxDebug) {
+        if (enabled) {
             glBindVertexArray(s_vao);
 
             ccGLUseProgram(s_shader.program);
 
             ccGLBindTexture2DN(0, s_color.left);
             ccGLBindTexture2DN(1, s_color.right);
-#ifdef DEBUG
-            if (parallaxDebug) {
-                ccGLBindTexture2DN(1, s_debugDepth);
-            }
-#endif
 
             glUniform1i(s_leftLoc, 0);
             glUniform1i(s_rightLoc, 1);
-#ifdef DEBUG
-            glUniform1i(s_debugLoc, parallaxDebug);
-#endif
 
             glDrawArrays(GL_TRIANGLES, 0, 6);
 
