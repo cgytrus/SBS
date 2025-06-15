@@ -44,8 +44,8 @@ void addParallax(CCNode* node, float parallax) {
         s_hasParallax.emplace(node);
 }
 
-float s_parallaxMod = 0.0f;
-float s_parallaxDistance = 0.0f;
+float s_mod = 0.0f;
+float s_distance = 0.0f;
 std::unordered_map<int, float> s_groupParallax;
 std::unordered_map<int, float> s_groupNonParallax;
 std::vector<const GroupCommandObject2*> s_tryLater;
@@ -56,7 +56,7 @@ float s_prevCamPos = 0.0f;
 float s_lastCamDelta = 0.0f;
 void parallax::apply(GJBaseGameLayer* gl) {
     if (!s_debug)
-        s_parallaxDistance = Mod::get()->getSettingValue<float>("distance");
+        s_distance = Mod::get()->getSettingValue<float>("parallax-distance");
     s_maxIter = Mod::get()->getSettingValue<size_t>("parallax-max-iter");
     if (const auto* menu = MenuLayer::get()) {
         if (menu->m_menuGameLayer && menu->m_menuGameLayer->m_backgroundSprite) {
@@ -195,7 +195,7 @@ void parallax::apply(GJBaseGameLayer* gl) {
 
 class $modify(CCNode) {
     $override void visit() {
-        if (s_parallaxDistance == 0.0f && !parallax::s_debug)
+        if (s_distance == 0.0f && !parallax::s_debug)
             return CCNode::visit();
         if (auto* mise = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
             addParallax(mise, mise->getScaleX() / mise->m_baseScale - 1.0f);
@@ -211,14 +211,14 @@ void parallax::cleanup() {
         static_cast<ParallaxNode*>(node)->m_fields->m_hasParallaxCache = false;
     }
     s_hasParallax.clear();
-    s_parallaxDistance = 0.0f;
+    s_distance = 0.0f;
 }
 
 ccVertex3F getParallaxOffset(CCNode* node) {
     if (!node)
         return { 0.0f, 0.0f, 0.0f };
     float z = static_cast<ParallaxNode*>(node)->getParallax();
-    const float offset = z * s_parallaxDistance * s_parallaxMod;
+    const float offset = z * s_distance * s_mod;
     if (!parallax::s_debug)
         z = 0.0f;
     if (offset == 0.0f)
@@ -230,17 +230,17 @@ ccVertex3F getParallaxOffset(CCNode* node) {
 }
 
 void drawBoth() {
-    s_parallaxMod = 0.0f;
+    s_mod = 0.0f;
     constexpr GLenum buffers[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
     glDrawBuffers(2, buffers);
 }
 void drawLeft() {
-    s_parallaxMod = 1.0f;
+    s_mod = 1.0f;
     constexpr GLenum buffers[] { GL_COLOR_ATTACHMENT0 };
     glDrawBuffers(1, buffers);
 }
 void drawRight() {
-    s_parallaxMod = -1.0f;
+    s_mod = -1.0f;
     constexpr GLenum buffers[] { GL_COLOR_ATTACHMENT1 };
     glDrawBuffers(1, buffers);
 }
@@ -321,7 +321,7 @@ class $modify(CCSprite) {
         if (sl && this == sl->m_sprite)
             return CCSprite::draw();
 
-        if (s_parallaxDistance == 0.0f)
+        if (s_distance == 0.0f)
             return this->drawHook();
 
         drawLeft();
@@ -344,7 +344,7 @@ class $modify(CCSprite) {
 #include <Geode/modify/CCSpriteBatchNode.hpp>
 class $modify(CCSpriteBatchNode) {
     $override void draw() {
-        if (s_parallaxDistance == 0.0f)
+        if (s_distance == 0.0f)
             return CCSpriteBatchNode::draw();
 
         drawLeft();
@@ -466,7 +466,7 @@ class $modify(CCLayerColor) {
         if (!self)
             return CCLayerColor::draw();
 
-        if (s_parallaxDistance == 0.0f)
+        if (s_distance == 0.0f)
             return this->drawHook(self);
 
         drawLeft();
@@ -503,7 +503,7 @@ class $modify(CCParticleSystemQuad) {
             return CCParticleSystemQuad::draw();
         }
 
-        if (s_parallaxDistance == 0.0f)
+        if (s_distance == 0.0f)
             return CCParticleSystemQuad::draw();
 
         drawLeft();

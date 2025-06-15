@@ -25,9 +25,9 @@
 			"description": "Toggle the 3D effect",
 			"default": true
 		},
-		"distance": {
+		"parallax-distance": {
 			"type": "float",
-			"name": "Distance",
+			"name": "Parallax Distance",
 			"description": "Maximum distance of the 3D effect",
 			"default": 7.5,
 			"min": 0.0,

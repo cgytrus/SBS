@@ -19,15 +19,15 @@ $execute {
         "SBS"
     });
     BindManager::get()->registerBindable({
-        "distance-dec"_spr,
-        "Decrease Distance",
+        "parallax-distance-dec"_spr,
+        "Decrease Parallax Distance",
         "",
         { Keybind::create(KEY_LeftBracket, Modifier::None) },
         "SBS"
     });
     BindManager::get()->registerBindable({
-        "distance-inc"_spr,
-        "Increase Distance",
+        "parallax-distance-inc"_spr,
+        "Increase Parallax Distance",
         "",
         { Keybind::create(KEY_RightBracket, Modifier::None) },
         "SBS"
@@ -60,17 +60,17 @@ $execute {
         if (!event->isDown())
             return ListenerResult::Propagate;
         auto* mod = Mod::get();
-        mod->setSettingValue("distance", mod->getSettingValue<double>("distance") - 0.1);
+        mod->setSettingValue("parallax-distance", mod->getSettingValue<double>("parallax-distance") - 0.1);
         return ListenerResult::Propagate;
-    }, InvokeBindFilter(nullptr, "distance-dec"_spr));
+    }, InvokeBindFilter(nullptr, "parallax-distance-dec"_spr));
 
     new EventListener([=](const InvokeBindEvent* event) {
         if (!event->isDown())
             return ListenerResult::Propagate;
         auto* mod = Mod::get();
-        mod->setSettingValue("distance", mod->getSettingValue<double>("distance") + 0.1);
+        mod->setSettingValue("parallax-distance", mod->getSettingValue<double>("parallax-distance") + 0.1);
         return ListenerResult::Propagate;
-    }, InvokeBindFilter(nullptr, "distance-inc"_spr));
+    }, InvokeBindFilter(nullptr, "parallax-distance-inc"_spr));
 
     new EventListener([=](const InvokeBindEvent* event) {
         if (!event->isDown())
