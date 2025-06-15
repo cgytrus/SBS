@@ -1,9 +1,19 @@
-﻿#ifdef DEBUG
-#include <Geode/Geode.hpp>
+﻿#include <Geode/Geode.hpp>
 
 using namespace geode::prelude;
 
 #include "parallax.hpp"
+
+void toggleDebugModeHooks(auto& self) {
+    if (Mod::get()->getSettingValue<bool>("debug"))
+        return;
+    for (const auto& [ name, hook ] : self.m_hooks) {
+        hook->setAutoEnable(false);
+        if (!hook->disable())
+            log::warn("uhh failed to disable debug hook, enjoy free debug mode i guess");
+    }
+}
+#define TOGGLE_DEBUG_MODE_HOOKS toggleDebugModeHooks(self)
 
 const char* PositionTextureColorVert = R"(
 attribute vec4 a_position;
@@ -134,6 +144,10 @@ std::unordered_set<CCGLProgram*> s_debugs;
 
 #include <Geode/modify/CCShaderCache.hpp>
 class $modify(DebugShaderCache, CCShaderCache) {
+    static void onModify(auto& self) {
+        TOGGLE_DEBUG_MODE_HOOKS;
+    }
+
     static DebugShaderCache* get() {
         return static_cast<DebugShaderCache*>(sharedShaderCache());
     }
@@ -270,6 +284,10 @@ class $modify(DebugShaderCache, CCShaderCache) {
 
 #include <Geode/modify/CCGLProgram.hpp>
 class $modify(CCGLProgram) {
+    static void onModify(auto& self) {
+        TOGGLE_DEBUG_MODE_HOOKS;
+    }
+
     $override void use() {
         FUNNY_CCGLPROGRAM_OVERRIDE(use);
     }
@@ -346,5 +364,3 @@ class $modify(CCGLProgram) {
         FUNNY_CCGLPROGRAM_OVERRIDE(setUniformsForBuiltins);
     }
 };
-
-#endif

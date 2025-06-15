@@ -225,23 +225,6 @@ class $modify(StereoRenderTexture, CCRenderTexture) {
         glBindFramebuffer(GL_FRAMEBUFFER, m_nOldFBO);
         return true;
     }
-
-    $override void begin() {
-        CCRenderTexture::begin();
-        constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-        glDrawBuffers(2, both);
-    }
-
-    $override void end() {
-        CCRenderTexture::end();
-        constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-        glDrawBuffers(2, both);
-    }
-
-    //$override void destructor() {
-    //    CCRenderTexture::~CCRenderTexture();
-    //    m_fields->m_rightTexture->release();
-    //}
 };
 
 bool s_enabled = false;
@@ -279,13 +262,10 @@ class $modify(CCNode) {
         }
         s_enabled = Mod::get()->getSettingValue<bool>("enabled");
         bool parallax = Mod::get()->getSettingValue<bool>("parallax");
-        parallax::s_debug = false;
-#ifdef DEBUG
-        parallax::s_debug = Mod::get()->getSettingValue<bool>("parallax-debug");
-#else
-        if (!enabled && !s_debug)
+        bool debugMode = Mod::get()->getSettingValue<bool>("debug");
+        parallax::s_debug = debugMode && Mod::get()->getSettingValue<bool>("debug-parallax");
+        if (!s_enabled && !debugMode)
             return CCNode::visit();
-#endif
         const bool useParallax = s_enabled && parallax || parallax::s_debug;
 
         startMod();

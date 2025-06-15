@@ -33,7 +33,7 @@ $execute {
         "SBS"
     });
     BindManager::get()->registerBindable({
-        "parallax-debug"_spr,
+        "debug-parallax"_spr,
         "Toggle Parallax Debug",
         "",
         { Keybind::create(KEY_P, Modifier::Alt) },
@@ -76,7 +76,7 @@ $execute {
         if (!event->isDown())
             return ListenerResult::Propagate;
         auto* mod = Mod::get();
-        mod->setSettingValue("parallax-debug", !mod->getSettingValue<bool>("parallax-debug"));
+        mod->setSettingValue("debug-parallax", !mod->getSettingValue<bool>("debug-parallax"));
         return ListenerResult::Propagate;
-    }, InvokeBindFilter(nullptr, "parallax-debug"_spr));
+    }, InvokeBindFilter(nullptr, "debug-parallax"_spr));
 }
