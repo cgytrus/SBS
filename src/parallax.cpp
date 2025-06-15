@@ -54,7 +54,7 @@ size_t s_maxIter = 0;
 GJBaseGameLayer* s_bgl = nullptr;
 float s_prevCamPos = 0.0f;
 float s_lastCamDelta = 0.0f;
-void applyParallax(GJBaseGameLayer* gl) {
+void parallax::apply(GJBaseGameLayer* gl) {
     if (!s_debug)
         s_parallaxDistance = Mod::get()->getSettingValue<float>("distance");
     s_maxIter = Mod::get()->getSettingValue<size_t>("parallax-max-iter");
@@ -195,7 +195,7 @@ void applyParallax(GJBaseGameLayer* gl) {
 
 class $modify(CCNode) {
     $override void visit() {
-        if (s_parallaxDistance == 0.0f && !s_debug)
+        if (s_parallaxDistance == 0.0f && !parallax::s_debug)
             return CCNode::visit();
         if (auto* mise = typeinfo_cast<CCMenuItemSpriteExtra*>(this)) {
             addParallax(mise, mise->getScaleX() / mise->m_baseScale - 1.0f);
@@ -204,7 +204,7 @@ class $modify(CCNode) {
     }
 };
 
-void cleanupParallax() {
+void parallax::cleanup() {
     s_bgl = nullptr;
     for (const auto& node : s_hasParallax) {
         static_cast<ParallaxNode*>(node)->m_fields->m_ownParallax = 0.0f;
@@ -219,7 +219,7 @@ ccVertex3F getParallaxOffset(CCNode* node) {
         return { 0.0f, 0.0f, 0.0f };
     float z = static_cast<ParallaxNode*>(node)->getParallax();
     const float offset = z * s_parallaxDistance * s_parallaxMod;
-    if (!s_debug)
+    if (!parallax::s_debug)
         z = 0.0f;
     if (offset == 0.0f)
         return { 0.0f, 0.0f, z };
@@ -420,7 +420,7 @@ class $modify(CCLayerColor) {
         const auto rtr = getParallaxOffset(s_bgl->tryGetMainObject(trigger->m_rightTopRightID));
 
         if (trigger->m_vertexMode) {
-            if (s_debug) {
+            if (parallax::s_debug) {
                 this->drawDebug(ubl.z, dbr.z, ltl.z, rtr.z);
                 return;
             }
@@ -439,7 +439,7 @@ class $modify(CCLayerColor) {
         }
         else {
             // dont bother, idk how this would work
-            if (s_debug)
+            if (parallax::s_debug)
                 return CCLayerColor::draw();
 
             const float up = ubl.y;
@@ -483,7 +483,7 @@ class $modify(CCLayerColor) {
 class $modify(CCParticleSystemQuad) {
     $override void draw() {
         // TODO: make debug mode not  have to do this 👍
-        if (s_debug) {
+        if (parallax::s_debug) {
             const auto offset = getParallaxOffset(this);
             if (offset.z == 0.0f)
                 return CCParticleSystemQuad::draw();

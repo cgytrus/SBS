@@ -264,7 +264,7 @@ class $modify(DebugShaderCache, CCShaderCache) {
 };
 
 #define FUNNY_CCGLPROGRAM_OVERRIDE(Name, ...) \
-    if (s_debug) \
+    if (parallax::s_debug) \
         return DebugShaderCache::get()->getDebugShaderFor(this)->Name(__VA_ARGS__); \
     return CCGLProgram::Name(__VA_ARGS__)
 

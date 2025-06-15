@@ -1,6 +1,8 @@
 ﻿#pragma once
 
-extern bool s_debug;
+namespace parallax {
+    extern bool s_debug;
 
-void applyParallax(GJBaseGameLayer* gl);
-void cleanupParallax();
+    void apply(GJBaseGameLayer* gl);
+    void cleanup();
+}

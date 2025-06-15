@@ -245,7 +245,7 @@ class $modify(StereoRenderTexture, CCRenderTexture) {
 };
 
 bool s_enabled = false;
-bool s_debug = false;
+bool parallax::s_debug = false;
 
 #include <Geode/modify/CCNode.hpp>
 class $modify(CCNode) {
@@ -302,12 +302,12 @@ class $modify(CCNode) {
             bgl = LevelEditorLayer::get();
 
         if (useParallax)
-            applyParallax(bgl);
+            parallax::apply(bgl);
 
         CCNode::visit();
 
         if (useParallax)
-            cleanupParallax();
+            parallax::cleanup();
 
         endMod();
 
