@@ -47,10 +47,17 @@ void addParallax(CCNode* node, float parallax) {
 float s_parallaxMod = 0.0f;
 float s_parallaxDistance = 0.0f;
 std::unordered_map<int, float> s_groupParallax;
+std::unordered_map<int, float> s_groupNonParallax;
+std::vector<const GroupCommandObject2*> s_tryLater;
+std::vector<const GroupCommandObject2*> s_tryLater2;
+size_t s_maxIter = 0;
 GJBaseGameLayer* s_bgl = nullptr;
+float s_prevCamPos = 0.0f;
+float s_lastCamDelta = 0.0f;
 void applyParallax(GJBaseGameLayer* gl) {
     if (!s_debug)
         s_parallaxDistance = Mod::get()->getSettingValue<float>("distance");
+    s_maxIter = Mod::get()->getSettingValue<size_t>("parallax-max-iter");
     if (const auto* menu = MenuLayer::get()) {
         if (menu->m_menuGameLayer && menu->m_menuGameLayer->m_backgroundSprite) {
             addParallax(menu->m_menuGameLayer->m_backgroundSprite, 0.1f - 1.0f);
@@ -60,37 +67,129 @@ void applyParallax(GJBaseGameLayer* gl) {
         return;
     addParallax(gl->m_background, 0.1f - 1.0f);
     addParallax(gl->m_middleground, 0.25f - 1.0f);
+    // TODO: better heuristics
+    float camPos = gl->m_gameState.m_cameraPosition.x;
+    float camDelta = camPos - s_prevCamPos;
+    if (camDelta != 0.0f)
+        s_lastCamDelta = camDelta;
+    s_prevCamPos = camPos;
     CCDictionaryExt<int, CCArray*> groupDict = gl->m_groupDict;
+    constexpr int MoveCommandType = 0;
+    constexpr int FollowCommandType = 2;
+    size_t successful = 0;
+    std::vector<const GroupCommandObject2*>& tryLater = s_tryLater;
+    std::vector<const GroupCommandObject2*>& otherTryLater = s_tryLater2;
     for (const auto& command : gl->m_effectManager->m_unkVector560) {
+        if (command.m_commandType != MoveCommandType) {
+            tryLater.push_back(&command);
+            continue;
+        }
         if (command.m_lockToCameraX) {
             if (!s_groupParallax.contains(command.m_targetGroupID))
                 s_groupParallax[command.m_targetGroupID] = 0.0f;
             s_groupParallax[command.m_targetGroupID] += static_cast<float>(command.m_moveModX);
-        }
-        // TODO: better heuristics
-        // this just checks if its a 2.2 level because in 2.2 ppl already started using
-        // locking to camera to lock things to camera
-        // while in 2.1 the only way to lock to camera x was to lock to player x
-        // this also can't detect if there's another move trigger alongside the
-        // one that's setup to follow the camera
-        if (gl->m_level->m_gameVersion >= 22)
+            successful++;
             continue;
+        }
+        // TODO: handle cases where player x != camera x
         if (command.m_lockToPlayerX && !command.m_lockToPlayerY) {
             if (!s_groupParallax.contains(command.m_targetGroupID))
                 s_groupParallax[command.m_targetGroupID] = 0.0f;
             s_groupParallax[command.m_targetGroupID] += static_cast<float>(command.m_moveModX);
+            successful++;
+            continue;
         }
+        tryLater.push_back(&command);
     }
+    size_t i = 1;
+    while (i != s_maxIter) {
+        std::swap(tryLater, otherTryLater);
+        bool last = successful == 0;
+        successful = 0;
+        for (const auto& command : otherTryLater) {
+            if (last) {
+                //log::debug("{}", command->m_targetGroupID);
+                s_groupNonParallax[command->m_targetGroupID] += 1.0f - (s_lastCamDelta - static_cast<float>(
+                    command->m_oldDeltaX + command->m_oldDeltaX_3)) / s_lastCamDelta;
+                successful++;
+                //switch (command->m_commandType) {
+                //    case MoveCommandType:
+                //        // TODO: handle non-linear easing
+                //        s_groupNonParallax[command->m_targetGroupID] += static_cast<float>(command->m_moveOffset.x / command->m_duration);
+                //        break;
+                //    case FollowCommandType:
+                //        s_groupNonParallax[command->m_targetGroupID] += s_groupNonParallax[command->m_centerGroupID] *
+                //            static_cast<float>(command->m_followXMod);
+                //        break;
+                //    default:
+                //        break;
+                //}
+                continue;
+            }
+            switch (command->m_commandType) {
+                case MoveCommandType:
+                    if (!s_groupParallax.contains(command->m_targetGroupID)) {
+                        if (!s_groupNonParallax.contains(command->m_targetGroupID)) {
+                            tryLater.push_back(command);
+                            continue;
+                        }
+                        s_groupNonParallax[command->m_targetGroupID] += static_cast<float>(command->m_moveOffset.x / command->m_duration);
+                        successful++;
+                        continue;
+                    }
+                    // TODO: handle non-linear easing
+                    s_groupParallax[command->m_targetGroupID] += static_cast<float>(command->m_moveOffset.x / command->m_duration);
+                    successful++;
+                    break;
+                case FollowCommandType:
+                    if (!s_groupParallax.contains(command->m_centerGroupID)) {
+                        if (!s_groupNonParallax.contains(command->m_centerGroupID)) {
+                            tryLater.push_back(command);
+                            continue;
+                        }
+                        s_groupNonParallax[command->m_targetGroupID] += s_groupNonParallax[command->m_centerGroupID] * static_cast<float>(command->m_followXMod);
+                        successful++;
+                        continue;
+                    }
+                    s_groupParallax[command->m_targetGroupID] += s_groupParallax[command->m_centerGroupID] * static_cast<float>(command->m_followXMod);
+                    successful++;
+                    break;
+                default:
+                    break;
+            }
+        }
+        otherTryLater.clear();
+        i++;
+        if (last && successful == 0)
+            break;
+    }
+    //log::debug("iterations: {}", i);
+    //if (gl->m_level->m_gameVersion < 22) {
+    //    for (const auto& command : gl->m_effectManager->m_unkVector560) {
+    //        if (!s_groupParallax.contains(command.m_targetGroupID))
+    //            continue;
+    //        //if (command.m_lockToPlayerX && !command.m_lockToPlayerY)
+    //        //    continue;
+    //        s_groupParallax[command.m_targetGroupID] += 1.0f - (s_lastCamDelta - static_cast<float>(command.m_oldDeltaX + command.m_oldDeltaX_3)) / s_lastCamDelta;
+    //    }
+    //}
     for (const auto& [ id, parallax ] : s_groupParallax) {
         if (!groupDict.contains(id))
             continue;
         for (const auto& obj : CCArrayExt<GameObject*>(groupDict[id])) {
-            addParallax(obj, -parallax);
-            addParallax(obj->m_particle, -parallax);
-            addParallax(obj->m_glowSprite, -parallax);
+            float final = parallax;
+            for (short j = 0; j < obj->m_groupCount; j++) {
+                const short& group = obj->m_groups->at(j);
+                if (s_groupNonParallax.contains(group))
+                    final += s_groupNonParallax[group];
+            }
+            addParallax(obj, -final);
+            addParallax(obj->m_particle, -final);
+            addParallax(obj->m_glowSprite, -final);
         }
     }
     s_groupParallax.clear();
+    s_groupNonParallax.clear();
     s_bgl = gl;
 }
 

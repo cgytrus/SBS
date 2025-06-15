@@ -41,6 +41,21 @@
 			},
 			"enable-if": "parallax"
 		},
+		"parallax-max-iter": {
+			"type": "int",
+			"name": "parallax max iter",
+			"description": "",
+			"default": 0,
+			"min": 0,
+			"control": {
+				"arrows": true,
+				"arrow-step": 1,
+				"big-arrows": false,
+				"slider": false,
+				"input": true
+			},
+			"enable-if": "parallax"
+		},
 		"parallax-debug": {
 			"type": "bool",
 			"name": "Parallax Debug",
