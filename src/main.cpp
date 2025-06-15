@@ -279,14 +279,14 @@ class $modify(CCNode) {
         }
         s_enabled = Mod::get()->getSettingValue<bool>("enabled");
         bool parallax = Mod::get()->getSettingValue<bool>("parallax");
-        s_debug = false;
+        parallax::s_debug = false;
 #ifdef DEBUG
-        s_debug = Mod::get()->getSettingValue<bool>("parallax-debug");
+        parallax::s_debug = Mod::get()->getSettingValue<bool>("parallax-debug");
 #else
         if (!enabled && !s_debug)
             return CCNode::visit();
 #endif
-        const bool useParallax = s_enabled && parallax || s_debug;
+        const bool useParallax = s_enabled && parallax || parallax::s_debug;
 
         startMod();
 
@@ -331,6 +331,6 @@ class $modify(CCNode) {
 #endif
         }
 
-        s_debug = false;
+        parallax::s_debug = false;
     }
 };
