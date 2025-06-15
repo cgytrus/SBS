@@ -44,7 +44,6 @@ void addParallax(CCNode* node, float parallax) {
         s_hasParallax.emplace(node);
 }
 
-bool s_debug = false;
 float s_parallaxMod = 0.0f;
 float s_parallaxDistance = 0.0f;
 std::unordered_map<int, float> s_groupParallax;
@@ -218,6 +217,11 @@ class $modify(CCSprite) {
     }
 
     $override void draw() {
+        // ShaderLayer fix
+        auto* sl = typeinfo_cast<ShaderLayer*>(this->getParent());
+        if (sl && this == sl->m_sprite)
+            return CCSprite::draw();
+
         if (s_parallaxDistance == 0.0f)
             return this->drawHook();
 

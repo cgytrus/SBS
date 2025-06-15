@@ -21,7 +21,6 @@ GLuint s_depthStencil;
 Shader s_shader;
 GLint s_leftLoc = 0;
 GLint s_rightLoc = 0;
-GLint s_debugLoc = 0;
 const char* s_vertShader = R"(
 attribute vec4 aPosition;
 varying vec2 Position;
@@ -130,18 +129,12 @@ class $modify(CCEGLViewProtocol) {
         glBindRenderbuffer(GL_RENDERBUFFER, s_depthStencil);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
 
-        bool incomplete = false;
-
         glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color.left, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, s_color.right, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_depthStencil, 0);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             log::error("framebuffer incomplete, cleaning up");
-            incomplete = true;
-        }
-
-        if (incomplete) {
             cleanup();
             endMod();
             return;
@@ -167,7 +160,6 @@ class $modify(CCEGLViewProtocol) {
 
         s_leftLoc = glGetUniformLocation(s_shader.program, "left");
         s_rightLoc = glGetUniformLocation(s_shader.program, "right");
-        s_debugLoc = glGetUniformLocation(s_shader.program, "debug");
 
         constexpr GLfloat vertices[] = {
             // positions
@@ -193,14 +185,99 @@ class $modify(CCEGLViewProtocol) {
     }
 };
 
+// ShaderLayer fix
+#include <Geode/modify/CCRenderTexture.hpp>
+class $modify(StereoRenderTexture, CCRenderTexture) {
+    struct Fields {
+        CCTexture2D* m_rightTexture;
+    };
+
+    $override bool initWithWidthAndHeight(int w, int h, CCTexture2DPixelFormat eFormat, GLuint uDepthStencilFormat) {
+        bool ret = CCRenderTexture::initWithWidthAndHeight(w, h, eFormat, uDepthStencilFormat);
+        if (!ret)
+            return false;
+
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &m_nOldFBO);
+
+        // textures must be power of two squared
+        const unsigned int powW = m_pTexture->getPixelsWide();
+        const unsigned int powH = m_pTexture->getPixelsHigh();
+        void* data = malloc(static_cast<int>(powW * powH * 4));
+        memset(data, 0, static_cast<int>(powW * powH * 4));
+        m_fields->m_rightTexture = new CCTexture2D();
+        m_fields->m_rightTexture->initWithData(data, m_pTexture->getPixelFormat(), powW, powH, m_pTexture->getContentSize());
+        m_fields->m_rightTexture->setAliasTexParameters();
+        if (data)
+            free(data);
+
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &m_nOldFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_uFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_fields->m_rightTexture->getName(), 0);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            log::error("framebuffer incomplete, cleaning up");
+            cleanup();
+            endMod();
+            glBindFramebuffer(GL_FRAMEBUFFER, m_nOldFBO);
+            return false;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, m_nOldFBO);
+        return true;
+    }
+
+    $override void begin() {
+        CCRenderTexture::begin();
+        constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+        glDrawBuffers(2, both);
+    }
+
+    $override void end() {
+        CCRenderTexture::end();
+        constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+        glDrawBuffers(2, both);
+    }
+
+    //$override void destructor() {
+    //    CCRenderTexture::~CCRenderTexture();
+    //    m_fields->m_rightTexture->release();
+    //}
+};
+
+bool s_enabled = false;
 bool s_debug = false;
 
 #include <Geode/modify/CCNode.hpp>
 class $modify(CCNode) {
     $override void visit() {
-        if (static_cast<CCNode*>(this) != CCDirector::get()->getRunningScene())
-            return CCNode::visit();
-        bool enabled = Mod::get()->getSettingValue<bool>("enabled");
+        if (static_cast<CCNode*>(this) != CCDirector::get()->getRunningScene()) {
+            // ShaderLayer fix
+            if (!s_enabled)
+                return CCNode::visit();
+            auto* sl = typeinfo_cast<ShaderLayer*>(this->getParent());
+            if (!sl)
+                return CCNode::visit();
+            auto* sprite = typeinfo_cast<CCSprite*>(this);
+            if (!sprite || sprite != sl->m_sprite)
+                return CCNode::visit();
+
+            constexpr GLenum left[] { GL_COLOR_ATTACHMENT0 };
+            glDrawBuffers(1, left);
+            CCNode::visit();
+            sprite->getTexture()->retain();
+            sprite->setTexture(static_cast<StereoRenderTexture*>(sl->m_renderTexture)->m_fields->m_rightTexture);
+
+            constexpr GLenum right[] { GL_COLOR_ATTACHMENT1 };
+            glDrawBuffers(1, right);
+            CCNode::visit();
+            sprite->getTexture()->retain();
+            sprite->setTexture(sl->m_renderTexture->m_pTexture);
+
+            constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+            glDrawBuffers(2, both);
+            return;
+        }
+        s_enabled = Mod::get()->getSettingValue<bool>("enabled");
         bool parallax = Mod::get()->getSettingValue<bool>("parallax");
         s_debug = false;
 #ifdef DEBUG
@@ -209,11 +286,11 @@ class $modify(CCNode) {
         if (!enabled && !s_debug)
             return CCNode::visit();
 #endif
-        const bool useParallax = enabled && parallax || s_debug;
+        const bool useParallax = s_enabled && parallax || s_debug;
 
         startMod();
 
-        if (enabled) {
+        if (s_enabled) {
             glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
             constexpr GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
             glDrawBuffers(2, both);
@@ -234,7 +311,7 @@ class $modify(CCNode) {
 
         endMod();
 
-        if (enabled) {
+        if (s_enabled) {
             glBindVertexArray(s_vao);
 
             ccGLUseProgram(s_shader.program);
